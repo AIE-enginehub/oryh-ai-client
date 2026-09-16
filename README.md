@@ -1,0 +1,63 @@
+# ORYH AI Client
+
+ORYH 的 AI 客户端：在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 上以外部 Host 插件、Client 插件和 `oryh-web` Profile 运行。
+
+界面分三栏：左侧是业务菜单，中间是传统业务页面，右侧是 Chat。启动、认证、会话、模型设置和插件生命周期由 Harness 提供；本仓库的插件提供 ORYH 的企业连接、业务列表和表单。
+
+## 能力
+
+- **待办**：查看分配给自己的待办及其关联单据。
+- **工时**：查询、新建、编辑、提交；经理可以审批。
+- **费用**：本地加密草稿、核对确认、创建与提交。
+- **项目**：查询与新建。
+- **销售订单、库存、收发货**：查询与筛选，可以把常用筛选存成自己的菜单项。
+- **Chat**：agent 通过 ORYH 的 MCP 与技能读写业务数据，也可以直接打开中间栏的页面和表单。写入前是否需要确认，由 ORYH 下发的技能决定。
+
+凭据只保存在 Host 侧和系统钥匙串，浏览器通过生成的类型化 Remote 调用业务服务。每个会话固定绑定一个 ORYH 租户和员工身份。
+
+## 用 Docker Compose 运行
+
+需要 Docker，以及并列放置的两个源码目录：
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness.git
+git clone https://github.com/AIE-enginehub/oryh-ai-client.git
+cd oryh-ai-client
+```
+
+复制 `.env.example` 为 `.env`，填写 ORYH 服务端地址和模型配置，然后：
+
+```sh
+docker compose build --build-arg DSH_CLIENT_COMMIT_HASH="$(git -C ../deepseek-harness rev-parse HEAD)"
+docker compose up -d
+```
+
+浏览器打开 `http://127.0.0.1:4180/`，用 ORYH 账号登录并授权，即可进入工作台。这是**单用户**客户端：第一个登录的账号就是这个容器的使用者。详细说明、模型配置和数据卷见 [本地 Compose 指南](deploy/local/README.md)。
+
+## 本机开发
+
+需要 Node.js 24、pnpm 11，以及同级目录下的 `deepseek-harness`（本仓库通过 `link:` 依赖它）。
+
+```sh
+pnpm install
+pnpm build      # 构建插件并生成 Remote
+pnpm verify     # 类型检查与测试
+pnpm start      # 启动 oryh-web Profile
+```
+
+## 仓库结构
+
+| 目录 | 内容 |
+| --- | --- |
+| `packages/foundation` | 共享类型与协议契约 |
+| `packages/core` | ORYH 运行时：连接、凭据、MCP、技能同步 |
+| `packages/dsh-host` | Harness Host 插件：业务服务、Chat 工具、导航桥 |
+| `packages/web` | 浏览器端插件，发布为 `@oryh/dsh-client` |
+| `packages/dsh-bundle` | `oryh-web` Profile 与插件打包 |
+| `packages/timesheets`、`expenses`、`projects`、`records`、`todos` | 各业务领域的操作与校验 |
+| `packages/pages`、`store`、`workspace` | 页面框架、本地加密存储、工作区 |
+| `deploy/local` | 单用户容器：登录网关与模型配置 |
+
+## 许可证
+
+[Apache License 2.0](LICENSE)。

@@ -1,0 +1,21 @@
+{
+  "name": "@oryh/ai-client-foundation",
+  "version": "0.1.0",
+  "description": "Dependency-free ORYH primitives: the client error type and branded identifiers.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

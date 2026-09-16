@@ -1,0 +1,72 @@
+{
+  "name": "@oryh/dsh-client",
+  "version": "0.1.0",
+  "description": "ORYH business views contributed through DeepSeek Harness public client slots.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.app.json && node ../../scripts/build-dsh-client.mjs",
+    "test": "vitest run src/client",
+    "typecheck": "tsc --noEmit --project tsconfig.app.json"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "^9.74.7",
+    "@oryh/ai-client-core": "workspace:*",
+    "@oryh/ai-client-expenses": "workspace:*",
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-projects": "workspace:*",
+    "@oryh/ai-client-todos": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/ai-client-records": "workspace:*",
+    "@oryh/ai-client-timesheets": "workspace:*",
+    "@oryh/ai-client-workspace": "workspace:*",
+    "@tabler/icons-react": "^3.46.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-api-gateway": "link:../../../deepseek-harness/packages/api/gateway",
+    "@deepseek-ai/dsh-client-ui-renderer": "link:../../../deepseek-harness/packages/client/ui-renderer",
+    "@deepseek-ai/dsh-client-ui-sidebar": "link:../../../deepseek-harness/packages/client/ui-sidebar",
+    "@deepseek-ai/dsh-client-ui-layout": "link:../../../deepseek-harness/packages/client/ui-layout",
+    "@deepseek-ai/dsh-client-locale": "link:../../../deepseek-harness/packages/client/locale",
+    "@deepseek-ai/dsh-client-ui-slots": "link:../../../deepseek-harness/packages/client/ui-slots",
+    "@deepseek-ai/dsh-client-store": "link:../../../deepseek-harness/packages/client/store",
+    "@oryh/dsh-host": "workspace:*",
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-client-ui-theme": "link:../../../deepseek-harness/packages/client/ui-theme",
+    "@deepseek-ai/dsh-client-ui-session": "link:../../../deepseek-harness/packages/client/ui-session",
+    "@deepseek-ai/dsh-client-ui-settings": "link:../../../deepseek-harness/packages/client/ui-settings"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "^18.3.1"
+  },
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-session"
+      ]
+    }
+  }
+}

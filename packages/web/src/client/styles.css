@@ -1,0 +1,482 @@
+@scope (.oryh-business-root) {
+.client-root { --bg: #f6f7f9; --surface: #fff; --nav: #f3f5f7; --text: #26313c; --muted: #707b87; --line: #e5e9ed; --accent: #246b63; --accent-soft: #e6f0ed; --hover: #f6f8f9; min-height: 100%; color: var(--text); background: var(--bg); font-size: 14px; line-height: 1.5; }
+/* Two selectors because dialogs live somewhere else. Fluent mounts them in our portal node under a
+   provider it clones, and the clone copies `className` — so `.client-root` still matches — but not
+   the `data-theme` we set in app.tsx. Keyed on the class alone, every token inside a dialog fell
+   back to the light palette while Fluent painted its dark-mode white text: that is how the review
+   verdict came out white on white.
+   The ancestor form is matched against the portal node, which index.tsx stamps with the same theme.
+   It cannot be matched against `.oryh-business-root` instead, even though that element carries the
+   attribute too: this sheet is inside `@scope (.oryh-business-root)`, where an ancestor compound
+   only matches elements *within* the scope, and the scope root is not a descendant of itself. */
+.client-root[data-theme="dark"], [data-theme="dark"] .client-root { --bg: #151a20; --surface: #1c222a; --nav: #191f26; --text: #e1e7ee; --muted: #9aa8b6; --line: #303944; --accent: #86c9bb; --accent-soft: #253d39; --hover: #242d36; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { font-size: 26px; line-height: 1.35; letter-spacing: -.6px; font-weight: 650; margin-bottom: 6px; }
+h2 { font-size: 17px; line-height: 1.5; font-weight: 600; margin-bottom: 10px; }
+h3 { font-size: 15px; font-weight: 600; }
+p { line-height: 1.7; }
+a { color: var(--accent); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.business-content { grid-column: 2; grid-row: 2; min-width: 0; overflow-y: auto; padding: 26px 30px 40px; scrollbar-gutter: stable; }
+.breadcrumb { color: var(--muted); display: flex; align-items: center; gap: 7px; font-size: 11px; margin-bottom: 18px; }
+.surface { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 22px; min-width: 0; }
+.oryh-ts-save-feedback { margin-block: 12px; }
+.oryh-timesheets [role="alert"], .oryh-timesheet-review [role="alert"] { padding: 12px; border-inline-start: 3px solid var(--accent); background: var(--accent-soft); overflow-wrap: anywhere; }
+.business-page, .expense-panel { display: grid; gap: 16px; }
+.list-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.list-actions h2 { margin: 0; font-size: 16px; }
+.list-actions .muted { font-size: 11px; }
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.view-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 22px; }
+.table-surface { padding: 0; overflow: hidden; }
+.query-toolbar { display: grid; grid-template-columns: minmax(150px, 1.5fr) minmax(100px, 1fr); gap: 12px; padding: 18px; }
+.query-toolbar .fui-Field { min-width: 0; }
+.query-toolbar .fui-Input, .query-toolbar .fui-Select { min-width: 0; width: 100%; }
+.query-toolbar .fui-Label { font-size: 11px; color: var(--muted); }
+.filter-summary { display: flex; justify-content: space-between; align-items: center; min-height: 38px; gap: 8px; padding: 8px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+th { padding: 12px 16px; color: var(--muted); font-size: 11px; font-weight: 500; background: var(--hover); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { border-bottom: 1px solid var(--line); padding: 16px; vertical-align: middle; min-width: 80px; overflow-wrap: anywhere; }
+td:first-child { min-width: 190px; }
+td:last-child { min-width: 32px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--hover); }
+.record-link { border: none; background: none; padding: 0; text-align: left; color: var(--text); font-weight: 500; line-height: 1.6; }
+.record-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.record-status { display: inline-block; border-radius: 4px; padding: 2px 6px; font-size: 10px; white-space: nowrap; }
+.status-pending { background: var(--accent-soft); color: var(--accent); }
+.status-neutral { background: var(--hover); color: var(--muted); }
+.numeric { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table-footer { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.pagination { display: flex; align-items: center; gap: 10px; }
+.data-caption { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 10px; }
+.empty-state { text-align: center; padding: 42px 20px; }
+.empty-state h3 { margin-bottom: 8px; font-size: 14px; }
+.empty-state p { color: var(--muted); font-size: 12px; }
+.list-loading { display: flex; align-items: center; gap: 8px; padding: 12px 18px; color: var(--muted); font-size: 12px; }
+.muted { color: var(--muted); }
+.saved-queries { font-size: 12px; color: var(--muted); margin-top: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+summary { cursor: pointer; }
+.saved-queries > p { margin: 12px 0; }
+.saved-entry { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 10px 0; }
+.detail-grid { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 16px; margin: 24px 0; font-size: 13px; }
+.detail-pair { display: contents; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.record-detail > .muted { font-size: 12px; }
+.settings-page { display: grid; gap: 18px; max-width: 780px; }
+.settings-page p { font-size: 12px; color: var(--muted); }
+.disconnect-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+.connection-screen { max-width: 560px; margin: auto; padding: 72px 24px; }
+.connection-brand { font-size: 28px; font-weight: 650; margin-bottom: 48px; }
+.connection-brand > span { font-size: 14px; font-weight: 400; color: var(--muted); }
+.connect-intro, .connect-form, .approval { display: grid; gap: 20px; }
+.auth-card { padding: 24px; }
+.card-title { display: grid; gap: 8px; }
+.device-code { font-size: 26px; letter-spacing: 4px; padding: 10px 0; }
+.inline-status { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 1099px) {
+  .business-content { padding: 22px; }
+}
+@media (max-width: 700px) {
+  .business-content { grid-column: 1; padding: 20px 14px; }
+  .company-icon, .connection-state { display: none; }
+  h1 { font-size: 23px; }
+  .query-toolbar { gap: 10px; padding: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .query-toolbar > :first-child { grid-column: 1 / -1; }
+  .detail-grid { grid-template-columns: 80px minmax(0, 1fr); }
+  .surface:not(.table-surface) { padding: 16px; }
+  .form-actions { bottom: -20px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+.icon-button { padding: 6px; border-color: transparent; }
+
+.table-surface { container-type: inline-size; }
+@container (min-width: 760px) { .query-toolbar { grid-template-columns: minmax(150px, 1.5fr) minmax(90px, 1fr) repeat(2, minmax(130px, 1fr)) minmax(85px, 1fr); gap: 10px; } }
+
+}
+
+@scope (.oryh-business-root) {
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  .client-root { min-height:100%; }
+  .oryh-business-header { display:flex; flex-wrap:wrap; gap:16px; padding:20px 28px 8px; }
+  .oryh-business > nav { padding:8px 28px; }
+  .business-content { padding:20px 24px; overflow:visible; }
+  .connection-screen { min-height:60vh; }
+}
+@scope (.oryh-business-root) {
+  button, input, textarea, select { font:inherit; }
+  button { cursor:pointer; }
+  button:disabled { cursor:not-allowed; }
+  .view-tabs { flex-wrap:wrap; }
+  .expense-editor { display:grid; gap:18px; }
+  .expense-editor fieldset { display:grid; gap:16px; border:0; padding:0; margin:0; min-width:0; }
+  .expense-line { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; border:1px solid var(--line); border-radius:8px; padding:18px; }
+  .form-section-title { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; }
+  .form-actions { display:flex; flex-wrap:wrap; gap:8px; border-top:1px solid var(--line); padding-top:16px; }
+  @media (max-width:600px) { .expense-line { grid-template-columns:minmax(0,1fr); } }
+}
+
+/* The external root owns geometry only; native slot internals keep their styles. */
+.oryh-frame { --oryh-ground:var(--dsw-alias-bg-base,#fff); --oryh-line:var(--dsw-alias-border-l1,#e2e6eb); position:relative; display:grid; grid-template-columns:208px minmax(0,1fr) var(--oryh-chat-width,360px); grid-template-rows:48px minmax(0,1fr); height:100dvh; width:100%; overflow:hidden; background:var(--oryh-ground); color:var(--dsw-alias-label-primary,#26313c); }
+.oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(0,1fr) var(--oryh-chat-width,360px); }
+.oryh-navigation { grid-row:1/-1; min-height:0; min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--oryh-line); background:var(--dsw-alias-bg-layer-1,var(--oryh-ground)); }
+/* One compact row. The workbench name already sits in the top toolbar, so repeating it under the
+   logo only cost vertical space; the row is now the logo's own height rather than a fixed block. */
+.oryh-brand { display:flex; align-items:center; padding:12px 16px 10px; flex:none; }
+.oryh-logo { height:20px; width:auto; display:block; color:#11110f; }
+body[data-ds-dark-theme] .oryh-logo { color:#f4f4f2; }
+/* border-box so the height written by the resizer is the height actually occupied; with the
+   default content-box the padding made every drag and key step land short. */
+.oryh-menu { display:grid; gap:5px; padding:0 10px 12px; align-content:start; overflow-y:auto; min-height:0; flex:0 1 auto; box-sizing:border-box; }
+.oryh-menu button { display:flex; align-items:center; gap:11px; border:0; border-radius:6px; background:transparent; color:inherit; font:inherit; font-size:13px; padding:11px 12px; text-align:left; cursor:pointer; }
+.oryh-menu button[aria-current] { background:#246b6318; color:#246b63; font-weight:600; }
+body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; background:#86c9bb18; }
+.oryh-menu button:hover { background:#8882; }
+.oryh-native-heading { font-size:10px; letter-spacing:1px; opacity:.6; padding:14px 20px 8px; border-top:1px solid var(--oryh-line); flex:none; }
+.oryh-native-sidebar { flex:1; min-height:0; position:relative; }
+/* Sits in the flow between the menu and the session heading, so it never overlaps either. */
+.oryh-menu-resizer { flex:none; height:9px; margin:-4px 0; cursor:row-resize; touch-action:none; position:relative; z-index:2; }
+.oryh-menu-resizer::after { content:""; position:absolute; left:10px; right:10px; top:4px; height:2px; border-radius:2px; background:transparent; }
+.oryh-menu-resizer:hover::after,.oryh-menu-resizer:focus-visible::after,.oryh-frame[data-resizing-menu="true"] .oryh-menu-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
+.oryh-menu-resizer:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
+.oryh-frame[data-resizing-menu="true"] { user-select:none; cursor:row-resize; }
+.oryh-frame[data-compact="true"] .oryh-brand { padding:12px 0 10px; justify-content:center; }
+.oryh-frame[data-compact="true"] .oryh-menu { padding:0 5px 16px; }
+.oryh-frame[data-compact="true"] .oryh-menu button { justify-content:center; padding:12px 0; }
+.oryh-frame[data-compact="true"] .oryh-native-heading { text-align:center; padding:12px 0 6px; }
+.oryh-frame-toolbar { grid-column:2/-1; display:flex; align-items:center; gap:12px; padding:0 16px; border-bottom:1px solid var(--oryh-line); font-size:12px; }
+.oryh-frame-toolbar > span { opacity:.65; }
+.oryh-frame-toolbar button { display:flex; gap:6px; align-items:center; background:transparent; border:1px solid transparent; color:inherit; padding:6px; font:inherit; border-radius:5px; cursor:pointer; }
+.oryh-frame-toolbar button:hover { background:#8882; }
+.oryh-chat-controls { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.oryh-mobile-switch { display:none; }
+.oryh-business-seat { grid-column:2; grid-row:2; min-height:0; min-width:0; overflow:auto; background:var(--oryh-ground); }
+.oryh-business-root { min-height:100%; display:flex; flex-direction:column; background:#f6f7f9; }
+.oryh-business-root[data-theme="dark"] { background:#151a20; }
+.oryh-business-root > .client-root { flex:1; }
+.oryh-chat-seat { grid-column:3; grid-row:2; display:flex; flex-direction:column; min-width:0; min-height:0; border-left:1px solid var(--oryh-line); }
+.oryh-chat-seat > header { padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; }
+.oryh-chat-seat > header > span { opacity:.5; font-size:10px; }
+.oryh-chat-content { flex:1; position:relative; min-height:0; min-width:0; display:flex; flex-direction:column; }
+.oryh-artifact-seat { position:absolute; inset:48px 0 0; pointer-events:none; z-index:15; }
+.oryh-artifact-seat > * { pointer-events:auto; }
+.oryh-shell-overlay { position:absolute; inset:0; pointer-events:none; z-index:20; }
+.oryh-shell-overlay > * { pointer-events:auto; }
+.oryh-frame[data-chat="false"] { grid-template-columns:208px minmax(0,1fr); }
+.oryh-frame[data-chat="false"][data-compact="true"] { grid-template-columns:56px minmax(0,1fr); }
+.oryh-frame[data-chat="false"] .oryh-chat-seat { display:none; }
+@media (max-width:850px) {
+ .oryh-frame, .oryh-frame[data-compact="true"], .oryh-frame[data-chat="false"] { grid-template-columns:56px minmax(0,1fr); }
+ .oryh-mobile-switch { display:flex; margin-left:auto; }
+ .oryh-mobile-switch button[aria-pressed="true"] { background:#8882; }
+ .oryh-frame-toolbar > span, .oryh-chat-controls { display:none !important; }
+ .oryh-chat-seat { grid-column:2; border-left:0; }
+ .oryh-frame[data-focus="business"] .oryh-chat-seat { display:none; }
+ .oryh-frame[data-focus="chat"] .oryh-chat-seat { display:flex; }
+ .oryh-frame[data-focus="chat"] .oryh-business-seat { display:none; }
+}
+
+@media (max-width:1099px) {
+ .oryh-frame[data-compact="false"] .oryh-navigation { position:absolute; inset:0 auto 0 0; width:208px; z-index:30; box-shadow:6px 0 24px #0002; }
+ .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr) var(--oryh-chat-width,360px); }
+ .oryh-frame[data-chat="false"][data-compact="false"] { grid-template-columns:56px minmax(0,1fr); }
+}
+@media (max-width:850px) { .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr); } }
+
+.oryh-settings-label { display:inline-flex; align-items:center; gap:10px; }
+.oryh-visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+
+.oryh-timesheets, .oryh-timesheet-review { font-size: 14px; }
+.oryh-timesheets .surface { margin-block: 16px; padding: 16px; }
+.oryh-timesheets fieldset { border: 1px solid #a0a0a055; border-radius: 6px; margin-block: 14px; padding: 16px; min-width: 0; }
+.oryh-timesheets label { display: flex; flex-direction: column; gap: 6px; margin-block: 8px; }
+.oryh-timesheets input, .oryh-timesheets select, .oryh-timesheets textarea { box-sizing: border-box; min-width: 0; font: inherit; color: inherit; background: transparent; border: 1px solid #a0a0a080; border-radius: 4px; padding: 8px; }
+.oryh-timesheets select option { color: #222; background: #fff; }
+.oryh-timesheets textarea { min-height: 72px; resize: vertical; }
+.oryh-timesheets pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.oryh-timesheets table, .oryh-timesheet-review table { width: 100%; border-collapse: collapse; }
+.oryh-timesheets th, .oryh-timesheets td, .oryh-timesheet-review th, .oryh-timesheet-review td { padding: 10px; border-bottom: 1px solid #a0a0a040; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.oryh-timesheet-review { max-width: min(900px, 94vw); width: 900px; }
+.oryh-timesheet-review .table-scroll { overflow-x: auto; }
+
+.oryh-todo-chat details { margin-block: 12px; }
+.oryh-todo-chat dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Business view hierarchy stays inside the external ORYH slot. */
+@scope (.oryh-business-root) {
+  .oryh-business-header { padding:12px 20px; gap:4px 12px; border-bottom:1px solid var(--line); font-size:11px; color:var(--muted); }
+  .oryh-business-header strong { color:var(--text); }
+  .business-content { padding:12px 20px 28px; }
+  .breadcrumb { margin-bottom:8px; }
+  .business-page { gap:12px; }
+  .business-page-header { position:sticky; top:0; z-index:3; background:var(--bg); padding:10px 0 12px; border-bottom:1px solid var(--line); }
+  .business-page-header h1 { font-size:20px; line-height:1.4; margin:0; overflow-wrap:anywhere; }
+  .list-actions { gap:8px; }
+  .list-actions > div:first-child { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .query-toolbar { grid-template-columns:minmax(0,1fr) minmax(100px,.5fr); gap:10px; padding:12px; }
+  .query-toolbar > :first-child { grid-column:auto; }
+  .advanced-filters { padding:0 12px 10px; color:var(--muted); font-size:12px; }
+  .advanced-filter-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; padding-top:10px; }
+  .advanced-filter-fields .fui-Input, .advanced-filter-fields .fui-Select { width:100%; min-width:0; }
+  .filter-summary { padding:6px 12px; min-height:0; }
+  td { padding:12px; }
+  th { padding:10px 12px; }
+  .view-tabs { margin-bottom:12px; padding-bottom:8px; }
+  .chat-context-status { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted); font-size:12px; }
+  .chat-context-status p { margin:0; }
+  .chat-context-status button { flex:none; }
+  .oryh-todo-chat { display:grid; gap:12px; }
+  .oryh-todo-chat details { margin:0; border-top:1px solid var(--line); padding:12px 0; }
+  .oryh-todo-chat summary { font-size:13px; font-weight:600; }
+  .document-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)); gap:12px 20px; margin:12px 0 0; font-size:13px; }
+  .document-fields > div { min-width:0; }
+  .document-fields dt { font-size:11px; margin-bottom:3px; }
+  .oryh-todo-chat .document-metadata { border:0; padding:10px 0 0; color:var(--muted); }
+  .document-metadata summary { font-weight:400; font-size:11px; }
+  .oryh-timesheets .table-surface { padding:0; }
+  .oryh-timesheets > .business-page-header { display:flex; align-items:flex-start; gap:8px; flex-direction:column; margin-bottom:12px; }
+  .oryh-timesheets > .business-page-header .muted { font-size:12px; }
+  @media(max-width:600px) { .business-content { padding:10px 12px 24px; } .oryh-business-header { padding:10px 12px; } }
+}
+
+@scope (.oryh-business-root) { .business-page tbody td:nth-child(3) { min-width:140px; } }
+
+@scope (.oryh-business-root) { .oryh-timesheet-chat { margin:10px 0; } .oryh-timesheet-chat .surface { border-color:var(--accent); } }
+
+/* Project editor belongs to the ORYH business slot. */
+@scope (.oryh-business-root) {
+ .oryh-projects { container-type:inline-size; }
+ .project-form { background:var(--surface); border:1px solid var(--line); border-radius:8px; overflow:clip; }
+ .project-form > fieldset { border:0; padding:0; margin:0; min-width:0; }
+ .project-form-section { padding:22px; }
+ .project-form-section + .project-form-section { border-top:1px solid var(--line); }
+ .project-section-heading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:18px; }
+ .project-section-heading h2 { font-size:14px; margin:0; font-weight:650; }
+ .project-section-heading > span { font-size:11px; color:var(--muted); }
+ .project-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 16px; }
+ .project-field { display:flex; flex-direction:column; gap:7px; min-width:0; font-size:12px; font-weight:500; }
+ .project-field-wide { grid-column:1 / -1; }
+ .project-required { color:var(--accent); }
+ .project-field input { box-sizing:border-box; width:100%; min-width:0; height:40px; padding:9px 11px; font:inherit; font-size:13px; font-weight:400; color:var(--text); background:var(--surface); border:1px solid var(--line); border-radius:5px; transition:border-color .15s,box-shadow .15s; }
+ .project-field input:hover { border-color:var(--muted); }
+ .project-field input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-color:var(--accent); }
+ .project-field input::placeholder { color:var(--muted); opacity:.8; }
+ .project-field input:disabled { opacity:.65; background:var(--hover); }
+ .project-field small { color:var(--muted); font-size:11px; font-weight:400; line-height:1.5; }
+ .project-date-fields input { font-variant-numeric:tabular-nums; }
+ .project-initial-status { padding:0 22px 22px; display:flex; align-items:center; gap:16px; color:var(--muted); font-size:12px; }
+ .project-initial-status strong { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--accent); }
+ .project-initial-status i { width:6px; height:6px; border-radius:50%; background:currentColor; }
+ .project-form-actions { position:sticky; bottom:0; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 22px; border-top:1px solid var(--line); background:var(--hover); }
+ .project-form-actions > span { font-size:11px; color:var(--muted); }
+ .project-form-actions > button { min-height:36px; padding-inline:20px; }
+ .project-form-error { margin:0 22px 16px; border-left:3px solid var(--accent); padding:10px 12px; background:var(--accent-soft); font-size:12px; overflow-wrap:anywhere; }
+ @container (max-width:400px) { .project-fields:not(.project-date-fields) { grid-template-columns:minmax(0,1fr); } .project-form-section { padding:18px 16px; } .project-form-actions { padding:14px 16px; } .project-initial-status { padding-inline:16px; } }
+ @container (max-width:310px) { .project-date-fields { grid-template-columns:minmax(0,1fr); } }
+}
+.oryh-project-review dl { margin:20px 0; }
+.oryh-project-review dl > div { display:grid; grid-template-columns:88px minmax(0,1fr); gap:16px; padding:12px 0; border-bottom:1px solid #8883; }
+.oryh-project-review dt { opacity:.65; font-size:12px; }
+.oryh-project-review dd { margin:0; overflow-wrap:anywhere; font-size:14px; }
+
+.oryh-global-heading { display:flex; align-items:center; gap:20px; min-width:0; flex:1; }
+.oryh-global-title { white-space:nowrap; font-weight:500; }
+.oryh-global-identity { display:flex; align-items:center; gap:12px; min-width:0; padding-left:20px; border-left:1px solid var(--oryh-line); font-size:11px; }
+.oryh-global-identity strong, .oryh-global-identity span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.oryh-global-identity strong { font-weight:500; }
+.oryh-global-identity span { opacity:.6; }
+@media (max-width:850px) {
+ .oryh-frame-toolbar { padding-inline:12px; gap:8px; }
+ .oryh-global-heading { flex-direction:column; align-items:flex-start; gap:2px; }
+ .oryh-global-title { font-size:11px; }
+ .oryh-global-identity { padding:0; border:0; max-width:100%; gap:8px; font-size:10px; }
+ .oryh-mobile-switch { flex-shrink:0; }
+}
+@scope (.oryh-business-root) {
+ .record-search { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; }
+ .record-search .fui-Field { flex:1 1 200px; min-width:0; }
+ .oryh-records .data-caption { margin:0; }
+ .oryh-records .business-page-header > button { margin-top:8px; }
+}
+@scope (.oryh-business-root) {
+ .project-column-options { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding-top:12px; }
+ .project-column-options label { display:flex; align-items:center; gap:5px; }
+ .table-scroll time { white-space:nowrap; font-variant-numeric:tabular-nums; }
+}
+.product-picker-control { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:34px; padding-left:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; }
+.product-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.product-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:5px; font-size:12px; }
+.product-chip button { border:0; background:none; color:inherit; cursor:pointer; font-size:16px; }
+.product-picker-dialog { width:min(640px,calc(100vw - 32px)); }
+.product-picker-search,.product-picker-selection,.product-picker-pagination { display:flex; align-items:center; gap:10px; margin:12px 0; }
+.product-picker-search .fui-Input { flex:1; }
+.product-picker-selection { justify-content:space-between; }
+.product-picker-results { max-height:340px; overflow:auto; }
+.product-picker-row { display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--dsw-alias-border-l2); cursor:pointer; }
+.product-picker-row span { display:grid; gap:4px; }
+.product-picker-row small { opacity:.65; }
+.product-picker-pagination { justify-content:flex-end; font-size:12px; }
+.product-picker-pagination > span:first-child { margin-right:auto; }
+
+.oryh-frame-toolbar button:focus-visible,.oryh-menu button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+
+.oryh-chat-resizer { position:absolute; top:48px; bottom:0; right:calc(var(--oryh-chat-width) - 4px); width:9px; z-index:5; cursor:col-resize; touch-action:none; }
+.oryh-chat-resizer::after { content:""; position:absolute; left:4px; top:0; bottom:0; width:2px; background:transparent; }
+.oryh-chat-resizer:hover::after,.oryh-chat-resizer:focus-visible::after,.oryh-frame[data-resizing="true"] .oryh-chat-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
+.oryh-frame[data-resizing="true"] { user-select:none; cursor:col-resize; }
+@media(max-width:850px) { .oryh-chat-resizer { display:none; } }
+
+/*
+ * Hide the Harness conversation header's breadcrumb title.
+ *
+ * It shows the session's own auto-generated title, which for a long-lived session keeps naming
+ * whatever the first message was — stale and confusing beside a business workbench that already
+ * names the current page in its top toolbar.
+ *
+ * This overrides another plugin's UI, which is not something to do lightly. Two things keep it as
+ * contained as possible: it is scoped to our own chat seat, and it matches the STABLE half of the
+ * CSS-module class. Those classes are emitted as `[hash]_[local]`, so `_1tRJmG_crumbs` keeps
+ * `crumbs` across rebuilds while the hash changes with content. If upstream renames the local
+ * class the rule simply stops matching and the title returns — a visible, harmless regression
+ * rather than a broken layout. The sibling tabs (Chat / Trajectory) are deliberately untouched.
+ */
+.oryh-chat-content nav[class*="_crumbs"] { display:none; }
+
+/*
+ * Reclaiming vertical space from two embedded Harness surfaces.
+ *
+ * Same containment rules as the breadcrumb rule above: scoped to our own seats, and matched on the
+ * STABLE half of the `[hash]_[local]` CSS-module names. A rename upstream makes a rule stop
+ * matching, which restores the original chrome rather than breaking the layout.
+ */
+
+/* The session sidebar's logo row repeats the build name and carries a second collapse toggle; the
+   frame's own toolbar toggle already collapses this column. Worth 60px. */
+.oryh-native-sidebar [class*="_logoRow"] { display:none; }
+
+/* Fold the conversation header's two rows into one: tabs on the left, actions pushed to the right.
+   Puts Chat/Trajectory, the log action and the sidebar toggle on a single line. The min-height and
+   the tabs' top margin were both sized for the two-row original, so folding the rows without
+   clearing them would have kept every pixel this was meant to save. */
+.oryh-chat-content header[class*="_header"] { display:flex; align-items:center; gap:10px; min-height:0; padding-block:6px; }
+.oryh-chat-content header[class*="_header"] > div[class*="_tabs"] { order:1; flex:1 1 auto; min-width:0; border-bottom:0; margin-top:0; }
+.oryh-chat-content header[class*="_header"] > div[class*="_titleRow"] { order:2; flex:0 0 auto; margin-left:auto; }
+
+/* The overflow menu holds exactly one action, so the button reads as a download control instead of
+   an anonymous ellipsis. The glyph is masked from the button's own colour, so it stays correct in
+   both themes. It still opens that one-item menu: the button belongs to the session-log-export
+   plugin, and only its own code could turn the menu into a direct action. */
+.oryh-chat-content button[class*="_moreButton"] > svg { display:none; }
+.oryh-chat-content button[class*="_moreButton"]::before {
+  content:""; width:16px; height:16px; display:block; background:currentColor;
+  -webkit-mask:var(--oryh-download-glyph) center/16px 16px no-repeat;
+  mask:var(--oryh-download-glyph) center/16px 16px no-repeat;
+}
+.oryh-frame { --oryh-download-glyph:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5v8m0 0 3-3m-3 3-3-3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/><path d='M2.5 11v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V11' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'/></svg>"); }
+
+/* Shared business surfaces. These selectors never reach Harness conversation UI. */
+@scope (.oryh-business-root) {
+ .business-page, .expense-panel, .oryh-timesheets, .oryh-projects { display:grid; gap:16px; align-content:start; }
+ .business-page-header { padding:12px 0 16px; border-bottom:0; }
+ .business-page-header h1 { font-size:24px; font-weight:650; letter-spacing:-.5px; }
+ .business-page-header .muted { font-size:12px; }
+ .oryh-timesheets > .business-page-header { margin:0; }
+ .oryh-timesheets > .business-page-header .list-actions { width:100%; }
+ .surface { border-radius:10px; }
+ .table-surface, .oryh-timesheets .table-surface { padding:0; margin:0; border:1px solid var(--line); }
+ .query-toolbar, .record-search { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding:16px; margin:0; }
+ .query-toolbar > .fui-Field, .record-search > .fui-Field { flex:1 1 180px; max-width:360px; }
+ .query-toolbar input, .record-search input { font-size:13px; }
+ .query-toolbar .fui-Label, .record-search .fui-Label { color:var(--muted); font-size:12px; }
+ .list-configuration { display:flex; align-items:start; flex-wrap:wrap; gap:6px 18px; padding:0 16px 12px; }
+ .list-configuration .advanced-filters { padding:0; }
+ .advanced-filters summary { min-height:28px; line-height:28px; }
+ .table-surface table { font-size:13px; }
+ .table-surface th, .oryh-timesheets .table-surface th { padding:11px 16px; font-size:12px; font-weight:600; color:var(--muted); background:var(--hover); border-block:1px solid var(--line); }
+ .table-surface td, .oryh-timesheets .table-surface td { padding:13px 16px; vertical-align:middle; border-bottom:1px solid var(--line); }
+ .table-surface tr:last-child td { border-bottom:0; }
+ .table-surface tbody tr:focus-within { background:var(--hover); }
+ .table-footer { min-height:48px; box-sizing:border-box; font-size:12px; gap:12px; flex-wrap:wrap; padding:10px 16px; }
+ .record-link { font-size:13px; cursor:pointer; color:var(--accent); font-weight:600; }
+ .record-link:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:2px; }
+ .record-status { padding:3px 8px; border-radius:5px; font-size:12px; }
+ .table-scroll > p { padding:32px 16px; text-align:center; color:var(--muted); }
+ /* The row-open column: as narrow as its ">" and flush right, on every list. */
+ .table-surface th.row-open-cell, .table-surface td.row-open-cell { width:1%; padding-inline:4px 12px; text-align:right; white-space:nowrap; }
+ /* A page's views sit under its title, inside the header they belong to. */
+ .business-page-header .view-tabs { margin:12px 0 0; padding-bottom:0; border-bottom:0; }
+ .page-title .record-status { align-self:center; }
+ .oryh-timesheets .oryh-timesheet-chat { margin:0; }
+ .chat-context-status { font-size:11px; }
+ .oryh-timesheets > details.surface { margin:0; padding:12px 16px; font-size:12px; color:var(--muted); }
+ .oryh-timesheets > details.surface > summary { color:var(--text); }
+ .timesheet-editor { container-type:inline-size; min-width:0; }
+ .oryh-timesheets fieldset.timesheet-editor-fields { border:0; padding:0; margin:0; min-width:0; display:grid; gap:16px; }
+ .form-section { background:var(--surface); border:1px solid var(--line); border-radius:10px; min-width:0; overflow:hidden; }
+ .form-section-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 20px; }
+ .form-section-heading h2 { font-size:15px; margin:0; font-weight:650; }
+ .form-section-heading p { font-size:12px; color:var(--muted); margin:4px 0 0; }
+ .section-count { margin-left:6px; padding:2px 7px; font-size:12px; color:var(--muted); background:var(--hover); border-radius:4px; }
+ .timesheet-period { padding:0 20px 20px; display:grid; grid-template-columns:repeat(2,minmax(0,180px)) minmax(220px,1fr); gap:16px; align-items:start; }
+ .oryh-timesheets .timesheet-editor label { position:relative; display:flex; flex-direction:column; gap:6px; margin:0; color:var(--muted); font-size:12px; font-weight:500; min-width:0; }
+ .field-optional { position:absolute; right:0; top:0; font-size:11px; font-weight:400; color:var(--muted); }
+ .oryh-timesheets .timesheet-editor input, .oryh-timesheets .timesheet-editor select, .oryh-timesheets .timesheet-editor textarea { width:100%; height:36px; min-width:0; padding:7px 9px; background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:5px; font-size:13px; font-weight:400; outline-offset:2px; }
+ .oryh-timesheets .timesheet-editor textarea { height:64px; min-height:64px; }
+ .oryh-timesheets .timesheet-editor input:focus, .oryh-timesheets .timesheet-editor select:focus, .oryh-timesheets .timesheet-editor textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
+ .oryh-timesheets select option { background:var(--surface); color:var(--text); }
+ .timesheet-entry { display:grid; grid-template-columns:24px minmax(0,1fr) 28px; gap:12px; padding:16px 20px; border-top:1px solid var(--line); }
+ .timesheet-entry:focus-within { background:var(--hover); }
+ .timesheet-entry-index { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; padding-top:28px; }
+ .timesheet-entry-fields { display:grid; grid-template-columns:minmax(128px,1fr) minmax(64px,.5fr) minmax(105px,1fr) minmax(140px,1.6fr); gap:12px; }
+ .timesheet-entry-fields [data-field="task"] { grid-column:1/4; }
+ .timesheet-entry-fields [data-field="notes"] { grid-column:4; }
+ .timesheet-entry-fields [data-field="hours"] input { font-variant-numeric:tabular-nums; text-align:right; }
+ .timesheet-entry-remove { align-self:start; margin-top:24px; }
+ .timesheet-undo { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--accent-soft); color:var(--accent); padding:8px 20px; font-size:12px; }
+ .document-savebar { position:sticky; bottom:0; z-index:2; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 20px; margin-top:16px; box-shadow:0 -4px 16px #00000005; }
+ .timesheet-total { display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; }
+ .timesheet-total strong { font-size:24px; letter-spacing:-.5px; font-variant-numeric:tabular-nums; }
+ .timesheet-total small { font-size:12px; color:var(--muted); font-weight:400; }
+ .timesheet-total > span { color:var(--muted); font-size:12px; }
+ .oryh-ts-save-feedback { margin:0; min-width:0; }
+ .oryh-ts-save-feedback > p { max-width:52ch; margin:0 0 8px; }
+ .timesheet-submit { justify-content:flex-end; font-size:12px; }
+ @container (max-width:720px) {
+  .timesheet-period { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .timesheet-narrative { grid-column:1/-1; }
+  .timesheet-entry { gap:8px; padding:14px 12px; grid-template-columns:20px minmax(0,1fr) 28px; }
+  .timesheet-entry-fields { grid-template-columns:minmax(125px,1fr) minmax(65px,.6fr); }
+  .timesheet-entry-fields [data-field="task"], .timesheet-entry-fields [data-field="notes"] { grid-column:1/-1; }
+ }
+ @container (min-width:1100px) {
+  .timesheet-entry-fields { grid-template-columns:140px 70px 120px minmax(160px,1fr) minmax(180px,1.5fr) minmax(140px,1fr); }
+  .timesheet-entry-fields [data-field="task"], .timesheet-entry-fields [data-field="notes"] { grid-column:auto; }
+ }
+}
+@scope (.oryh-business-root) {
+ .oryh-timesheets .query-toolbar > label { min-width:160px; flex:0 1 280px; margin:0; font-size:12px; color:var(--muted); }
+ .oryh-timesheets .query-toolbar input, .oryh-timesheets .query-toolbar select { height:36px; border-color:var(--line); background:var(--surface); color:var(--text); }
+ .oryh-timesheets > .business-page-header { display:flex; flex-flow:row wrap; align-items:center; gap:12px; }
+ .oryh-timesheets > .business-page-header > h1 { flex:1; }
+ .oryh-timesheets > .business-page-header > .muted { display:none; }
+}
+@scope (.oryh-business-root) {
+ @container (min-width:1100px) {
+  .timesheet-entry:not(:first-child) { padding-block:10px; }
+  .timesheet-entry:not(:first-child) label { font-size:0; gap:0; }
+  .timesheet-entry:not(:first-child) .field-optional { display:none; }
+  .timesheet-entry:not(:first-child) .timesheet-entry-index { padding-top:9px; }
+  .timesheet-entry:not(:first-child) .timesheet-entry-remove { margin-top:3px; }
+ }
+}
+
+/* Pre-submit norm review, shown inside the confirm dialog. The verdict comes from the agent, so
+   the block has to hold anything from one line to a paragraph without moving the buttons. */
+.oryh-ts-norm { margin-top: 14px; padding: 12px 14px; border-radius: 6px; border: 1px solid #a0a0a055; display: grid; gap: 8px; justify-items: start; }
+.oryh-ts-norm p { margin: 0; font-size: 13px; }
+.oryh-ts-norm .muted { font-size: 12px; }
+.oryh-ts-norm[data-phase="passed"] { border-color: #2a7d5f66; }
+.oryh-ts-norm[data-phase="flagged"] { border-color: #b9770066; }

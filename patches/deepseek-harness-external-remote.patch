@@ -1,0 +1,65 @@
+diff --git a/packages/typert/generator/src/analyzer.ts b/packages/typert/generator/src/analyzer.ts
+index f5d629a82f..c1b45aabd7 100644
+--- a/packages/typert/generator/src/analyzer.ts
++++ b/packages/typert/generator/src/analyzer.ts
+@@ -1936,7 +1936,19 @@ class FaceAnalyzer {
+         && ts.isStringLiteral(current.name)
+         && current.name.text === '@deepseek-ai/dsh-typert-protocol') return true
+     }
+-    return false
++    // External plugins resolve protocol declarations through the public package export.
++    const module = ts.resolveModuleName(
++      '@deepseek-ai/dsh-typert-protocol',
++      node.getSourceFile().fileName,
++      this.program.getCompilerOptions(),
++      ts.sys,
++    ).resolvedModule
++    if (module === undefined) return false
++    const source = this.sourceFiles.get(realPath(module.resolvedFileName))
++    const moduleSymbol = source === undefined ? undefined : this.checker.getSymbolAtLocation(source)
++    if (moduleSymbol === undefined) return false
++    const exported = this.checker.getExportsOfModule(moduleSymbol).find(item => item.name === name)
++    return exported !== undefined && this.resolveSymbol(exported) === resolved
+   }
+ 
+   private validateInvocationIdentity(packages: readonly PackageModel[]): void {
+diff --git a/packages/typert/generator/tests/remote-model.spec.ts b/packages/typert/generator/tests/remote-model.spec.ts
+index 12ff2f4d07..dcfcb768c1 100644
+--- a/packages/typert/generator/tests/remote-model.spec.ts
++++ b/packages/typert/generator/tests/remote-model.spec.ts
+@@ -48,6 +48,35 @@ afterEach(() => {
+ })
+ 
+ describe('Remote model generation', { timeout: 60_000 }, () => {
++  it('recognizes protocol declarations installed outside the plugin workspace', () => {
++    const root = copyFixture()
++    const dependency = join(root, 'node_modules/@deepseek-ai/dsh-typert-protocol')
++    mkdirSync(dependency, { recursive: true })
++    writeFileSync(join(dependency, 'package.json'), JSON.stringify({
++      name: '@deepseek-ai/dsh-typert-protocol', types: 'index.d.ts',
++    }))
++    const protocol = readFileSync(join(root, 'typert-protocol.d.ts'), 'utf8')
++    writeFileSync(join(dependency, 'index.d.ts'), protocol.slice(protocol.indexOf('{') + 1, protocol.lastIndexOf('}')))
++    const configPath = join(root, 'tsconfig.base.json')
++    const config = JSON.parse(readFileSync(configPath, 'utf8'))
++    delete config.compilerOptions.paths['@deepseek-ai/dsh-typert-protocol']
++    writeFileSync(configPath, JSON.stringify(config))
++    rmSync(join(root, 'typert-protocol.d.ts'))
++    expect(remotePackage(root).invocations).toHaveLength(3)
++    expect(new WorkspaceTypertGenerator(root).generate()[0]?.remote).toBeDefined()
++
++    const unrelated = join(root, 'node_modules/@fixture/unrelated')
++    mkdirSync(unrelated, { recursive: true })
++    writeFileSync(join(unrelated, 'package.json'), JSON.stringify({ name: '@fixture/unrelated', types: 'index.d.ts' }))
++    writeFileSync(join(unrelated, 'index.d.ts'), readFileSync(join(dependency, 'index.d.ts'), 'utf8')
++      .replace('Extract<keyof TypertContextMap, string>', 'string'))
++    const entryPath = join(root, 'packages/remote/src/index.ts')
++    writeFileSync(entryPath, readFileSync(entryPath, 'utf8').replace(
++      "from '@deepseek-ai/dsh-typert-protocol'", "from '@fixture/unrelated'",
++    ))
++    expect(new WorkspaceTypertGenerator(root).generate().filter(artifact => artifact.remote !== undefined)).toEqual([])
++  })
++
+   it('discovers a Remote-only package and emits strict direct and Context descriptors', async () => {
+     const generator = new WorkspaceTypertGenerator(fixtureRoot)
+ 

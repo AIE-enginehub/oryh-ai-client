@@ -1,0 +1,34 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/core/tsconfig.json"
+    },
+    {
+      "path": "packages/dsh-host/tsconfig.json"
+    }
+  ],
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@oryh/ai-client-core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@oryh/dsh-host": [
+        "./packages/dsh-host/src/index.ts"
+      ],
+      "@oryh/ai-client-core/types": [
+        "./packages/core/src/types.ts"
+      ],
+      "@oryh/dsh-host/types": [
+        "./packages/dsh-host/src/types.ts"
+      ]
+    },
+    "types": [
+      "node"
+    ]
+  }
+}

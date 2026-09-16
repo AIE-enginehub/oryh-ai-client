@@ -1,0 +1,23 @@
+{
+  "name": "@oryh/dsh-bundle",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ORYH business plugin composition for a DeepSeek Harness web Profile.",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@oryh/dsh-host": "workspace:*",
+    "@oryh/dsh-client": "workspace:*",
+    "@deepseek-ai/dsh-host-directory-picker-browse": "link:../../../deepseek-harness/packages/host/directory-picker-browse",
+    "@deepseek-ai/dsh-client-ui-directory-picker-browse": "link:../../../deepseek-harness/packages/client/ui-directory-picker-browse"
+  }
+}

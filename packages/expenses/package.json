@@ -1,0 +1,32 @@
+{
+  "name": "@oryh/ai-client-expenses",
+  "version": "0.1.0",
+  "description": "ORYH expense contracts, encrypted draft store and the save/prepare/confirm/reconcile service.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./contracts": {
+      "types": "./lib/contracts.d.ts",
+      "default": "./lib/contracts.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@napi-rs/keyring": "1.3.0",
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

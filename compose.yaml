@@ -1,0 +1,27 @@
+name: oryh-client-local
+services:
+  client:
+    build:
+      context: ..
+      dockerfile: oryh-ai-client/deploy/local/Dockerfile
+    ports:
+      - "127.0.0.1:4180:4173"
+    environment:
+      ORYH_SERVER_ORIGIN: ${ORYH_SERVER_ORIGIN:?set ORYH_SERVER_ORIGIN in .env}
+      # One model for everyone using this deployment; set these in .env next to this file (see .env.example).
+      DEEPSEEK_API_KEY: ${ORYH_MODEL_API_KEY:?set ORYH_MODEL_API_KEY in .env}
+      DEEPSEEK_BASE_URL: ${ORYH_MODEL_BASE_URL:-https://api.deepseek.com}
+      ORYH_MODEL: ${ORYH_MODEL:-deepseek-v4-flash}
+      ORYH_MODEL_REASONING_EFFORT: ${ORYH_MODEL_REASONING_EFFORT:-high}
+    volumes:
+      - client-data:/home/node
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/oryh/health').then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 4
+    init: true
+    restart: unless-stopped
+volumes:
+  client-data:

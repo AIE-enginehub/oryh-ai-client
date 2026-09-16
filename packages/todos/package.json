@@ -1,0 +1,26 @@
+{
+  "name": "@oryh/ai-client-todos",
+  "version": "0.1.0",
+  "description": "ORYH todo detail projection: the allowlisted business view of a todo and its linked document.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@oryh/ai-client-foundation": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

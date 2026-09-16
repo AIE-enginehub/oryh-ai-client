@@ -1,0 +1,25 @@
+{
+  "name": "@oryh/ai-client-workspace",
+  "version": "0.1.0",
+  "description": "Browser-safe ORYH direct-operation workspace state for the AI client.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "dependencies": {
+    "@oryh/ai-client-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

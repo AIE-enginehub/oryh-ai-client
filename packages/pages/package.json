@@ -1,0 +1,25 @@
+{
+  "name": "@oryh/ai-client-pages",
+  "version": "0.1.0",
+  "description": "Dependency-free ORYH business page registry shared by the core, the Host plugin and the client.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "dependencies": {
+    "@oryh/ai-client-foundation": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

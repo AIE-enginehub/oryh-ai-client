@@ -1,0 +1,32 @@
+{
+  "name": "@oryh/ai-client-timesheets",
+  "version": "0.1.0",
+  "description": "ORYH timesheet contracts, revision store and the prepare/confirm/reconcile service.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./contracts": {
+      "types": "./lib/contracts.d.ts",
+      "default": "./lib/contracts.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/ai-client-store": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

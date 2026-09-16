@@ -1,0 +1,45 @@
+# ORYH is the sole root/layout service provider in this Profile.
+- id: ui-layout
+  disabled: true
+# Root replacement is not atomic in the current renderer. Use build + restart.
+- id: client-hmr
+  disabled: true
+# Keep workspace selection inside the browser for this Web client.
+- id: directory-picker
+  disabled: true
+# The Chat pane is a generic ORYH agent (ADR-0009): it discovers ORYH's skills, loads them with
+# the `skill` tool, and runs their `scripts/oryh_request.py` steps through the shell. All three
+# already ship with the agent preset, so nothing is re-enabled at the host plane — `skill-filesystem`,
+# `tool-skill` and `tool-bash` are parked there by the web-app profile ON PURPOSE (the preset owns
+# per-agent discovery), and a second host-plane `skill` registration would shadow the preset's own,
+# which is exactly what suppresses the session skill catalog. What was actually blocking them was
+# our own `tools.restrict({allow})` list in business-chat.ts, which now names `skill` and `bash`.
+# This deliberately reverses the narrow catalog of ADR-0007 — see ADR-0009 for why and for what
+# still bounds it (the API's own require_permission, and bundles that only carry skills the
+# holder's role covers).
+# Chat header, two controls that cannot mean anything here. "Open locally" launches a local
+# application on the session's workspace directory, which a business workbench user has no reason
+# to open; the agent-preset picker only ever shows one label while a single preset exists. Disabled
+# rather than hidden with CSS, so re-enabling is one line when agent presets become real.
+- id: ui-open-in-app
+  disabled: true
+- id: ui-agent-preset
+  disabled: true
+# dsh-base defaults new Agents to deepseek-flash (V41), which relayed DeepSeek
+# endpoints reject with HTTP 412. A patch replaces the row's whole config, so both
+# keys are restated. A saved selection in settings.yaml still wins for an existing profile.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+- insert:
+    - id: oryh-directory-picker-host
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: oryh-directory-picker-ui
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+    - id: oryh-client-host
+      name: '@oryh/dsh-host'
+      config:
+        developmentOnly: true
+    - id: oryh-client-ui
+      name: '@oryh/dsh-client'
