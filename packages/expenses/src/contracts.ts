@@ -5,6 +5,7 @@
  * document it is confirming, and the service is Node-only.
  */
 export const EXPENSE_OBJECT_TYPE = 'expense_claim'
+
 import { OryhClientError } from '@oryh/ai-client-foundation'
 
 /** Editable, model-independent expense fields; identity and lifecycle are Host-owned. */
@@ -23,8 +24,21 @@ export interface ExpenseLine {
   notes: string
   attachment?: ExpenseAttachment
 }
-export interface ExpenseAttachment { id: string; filename: string; sha256: string }
-export type ExpenseState = 'editing' | 'review-create' | 'creating' | 'created' | 'review-submit' | 'submitting' | 'submitted' | 'unknown-create' | 'unknown-submit'
+export interface ExpenseAttachment {
+  id: string
+  filename: string
+  sha256: string
+}
+export type ExpenseState =
+  | 'editing'
+  | 'review-create'
+  | 'creating'
+  | 'created'
+  | 'review-submit'
+  | 'submitting'
+  | 'submitted'
+  | 'unknown-create'
+  | 'unknown-submit'
 export interface ExpenseDraft {
   id: string
   revision: number
@@ -41,11 +55,23 @@ export interface ExpenseDraft {
 export interface OryhExpenseRemote {
   expenseList(connectionId: string): Promise<ExpenseDraft[]>
   expenseOptions(connectionId: string): Promise<{ categories: { name: string; title: string }[] }>
-  expenseSave(connectionId: string, input: { id?: string; revision?: number; fields: ExpenseFields }): Promise<ExpenseDraft>
+  expenseSave(
+    connectionId: string,
+    input: { id?: string; revision?: number; fields: ExpenseFields },
+  ): Promise<ExpenseDraft>
   expensePrepare(connectionId: string, id: string, revision: number): Promise<ExpenseDraft>
-  expenseConfirm(connectionId: string, id: string, revision: number, token: string, sessionId?: string): Promise<ExpenseDraft>
+  expenseConfirm(
+    connectionId: string,
+    id: string,
+    revision: number,
+    token: string,
+    sessionId?: string,
+  ): Promise<ExpenseDraft>
   expenseReconcile(connectionId: string, id: string, revision: number): Promise<ExpenseDraft>
-  expenseUpload(connectionId: string, input: { filename: string; contentType: string; contentBase64: string }): Promise<ExpenseAttachment>
+  expenseUpload(
+    connectionId: string,
+    input: { filename: string; contentType: string; contentBase64: string },
+  ): Promise<ExpenseAttachment>
   expenseDelete(connectionId: string, id: string, revision: number): Promise<void>
 }
 
@@ -60,34 +86,57 @@ export function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 function text(value: unknown, max: number, required = false): string {
-  if (typeof value !== 'string' || value.length > max || (required && value.trim().length === 0)) throw expenseError('费用字段为空或超过长度限制。')
+  if (typeof value !== 'string' || value.length > max || (required && value.trim().length === 0))
+    throw expenseError('费用字段为空或超过长度限制。')
   return value.trim()
 }
 function date(value: unknown): string {
   const input = text(value, 10, true)
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(input) || !Number.isFinite(Date.parse(input)) || new Date(input).toISOString().slice(0, 10) !== input) throw expenseError('请输入有效日期。')
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/u.test(input) ||
+    !Number.isFinite(Date.parse(input)) ||
+    new Date(input).toISOString().slice(0, 10) !== input
+  )
+    throw expenseError('请输入有效日期。')
   return input
 }
 /** Parse at the Host boundary; amounts remain decimal strings until the ORYH request. */
 export function parseExpenseFields(value: unknown, complete = true): ExpenseFields {
   const data = object(value)
-  if (!Array.isArray(data.items) || data.items.length === 0 || data.items.length > 100) throw expenseError('费用明细必须为 1–100 项。')
+  if (!Array.isArray(data.items) || data.items.length === 0 || data.items.length > 100)
+    throw expenseError('费用明细必须为 1–100 项。')
   const currency = text(data.currency, 3, complete).toUpperCase()
   if ((complete || currency !== '') && !/^[A-Z]{3}$/u.test(currency)) throw expenseError('请输入三位币种代码。')
   return {
-    title: text(data.title, 200, complete), claimDate: !complete && data.claimDate === '' ? '' : date(data.claimDate), currency,
+    title: text(data.title, 200, complete),
+    claimDate: !complete && data.claimDate === '' ? '' : date(data.claimDate),
+    currency,
     items: data.items.map(raw => {
       const line = object(raw)
       const amount = text(line.amount, 12, complete)
-      if ((complete || amount !== '') && (!/^\d{1,7}(\.\d{1,2})?$/u.test(amount) || Number(amount) <= 0 || Number(amount) > 9_999_999.99)) throw expenseError('金额必须大于零、最多两位小数且不超过 9,999,999.99。')
+      if (
+        (complete || amount !== '') &&
+        (!/^\d{1,7}(\.\d{1,2})?$/u.test(amount) || Number(amount) <= 0 || Number(amount) > 9_999_999.99)
+      )
+        throw expenseError('金额必须大于零、最多两位小数且不超过 9,999,999.99。')
       let attachment: ExpenseAttachment | undefined
       if (line.attachment !== undefined) {
         const item = object(line.attachment)
-        attachment = { id: text(item.id, 100, true), filename: text(item.filename, 255, true), sha256: text(item.sha256, 64, true) }
+        attachment = {
+          id: text(item.id, 100, true),
+          filename: text(item.filename, 255, true),
+          sha256: text(item.sha256, 64, true),
+        }
       }
-      return { expenseDate: !complete && line.expenseDate === '' ? '' : date(line.expenseDate), category: text(line.category, 100, complete), amount: amount === '' ? '' : Number(amount).toFixed(2),
-        merchant: text(line.merchant, 200), invoiceNumber: text(line.invoiceNumber, 100), notes: text(line.notes, 2000),
-        ...(attachment === undefined ? {} : { attachment }), }
+      return {
+        expenseDate: !complete && line.expenseDate === '' ? '' : date(line.expenseDate),
+        category: text(line.category, 100, complete),
+        amount: amount === '' ? '' : Number(amount).toFixed(2),
+        merchant: text(line.merchant, 200),
+        invoiceNumber: text(line.invoiceNumber, 100),
+        notes: text(line.notes, 2000),
+        ...(attachment === undefined ? {} : { attachment }),
+      }
     }),
   }
 }

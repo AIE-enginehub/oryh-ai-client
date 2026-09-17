@@ -19,7 +19,10 @@ import { dirname } from 'node:path'
 
 const env = process.env
 const ORYH = new URL(required('ORYH_SERVER_ORIGIN')).origin
-const PUBLIC_HOSTS = (env.ORYH_PUBLIC_HOSTS ?? '127.0.0.1:4180,localhost:4180').split(',').map(host => host.trim().toLowerCase()).filter(Boolean)
+const PUBLIC_HOSTS = (env.ORYH_PUBLIC_HOSTS ?? '127.0.0.1:4180,localhost:4180')
+  .split(',')
+  .map(host => host.trim().toLowerCase())
+  .filter(Boolean)
 // Kept short on purpose: ORYH stores the consent request's parameters joined with `|` in a
 // varchar(128) column, and a longer request fails there with a 500 after the person signs in.
 const CLIENT_ID = env.ORYH_OAUTH_CLIENT_ID ?? 'https://oryh.ai'
@@ -49,9 +52,14 @@ if (!command) throw new Error('usage: login-gateway.mjs -- <dsh command...>')
 
 let launchToken
 let resolveToken
-const tokenReady = new Promise(resolve => { resolveToken = resolve })
+const tokenReady = new Promise(resolve => {
+  resolveToken = resolve
+})
 const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-for (const [stream, sink] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+for (const [stream, sink] of [
+  [child.stdout, process.stdout],
+  [child.stderr, process.stderr],
+]) {
   let pending = ''
   stream.setEncoding('utf8')
   stream.on('data', chunk => {
@@ -64,7 +72,10 @@ for (const [stream, sink] of [[child.stdout, process.stdout], [child.stderr, pro
 function redact(line) {
   const match = /[?&]token=([A-Za-z0-9_-]+)/.exec(line)
   if (!match) return line
-  if (!launchToken) { launchToken = match[1]; resolveToken() }
+  if (!launchToken) {
+    launchToken = match[1]
+    resolveToken()
+  }
   return `ORYH AI Client ready: open ${PUBLIC_HOSTS.map(host => `http://${host}/`).join(' or ')} and sign in with ORYH.`
 }
 child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)))
@@ -75,11 +86,16 @@ for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(
 const pending = new Map()
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://gateway.invalid')
-  const route = url.pathname === '/oryh/health' ? health
-    : url.pathname === '/oryh/login' ? login
-    : url.pathname === '/oryh/callback' ? callback
-    : req.method === 'GET' && url.pathname === '/' && !url.searchParams.has('token') ? index
-    : proxy
+  const route =
+    url.pathname === '/oryh/health'
+      ? health
+      : url.pathname === '/oryh/login'
+        ? login
+        : url.pathname === '/oryh/callback'
+          ? callback
+          : req.method === 'GET' && url.pathname === '/' && !url.searchParams.has('token')
+            ? index
+            : proxy
   Promise.resolve(route(req, res, url)).catch(error => {
     console.error('login gateway:', error instanceof Error ? error.message : error)
     if (!res.headersSent) page(res, 502, '暂时无法登录', '登录服务出错，请稍后重试。', true)
@@ -101,27 +117,36 @@ server.listen(LISTEN_PORT, '0.0.0.0')
 
 /** Everything DSH serves, passed through as is. */
 function proxy(req, res) {
-  const upstream = http.request({ host: '127.0.0.1', port: DSH_PORT, method: req.method, path: req.url, headers: req.headers }, answer => {
-    res.writeHead(answer.statusCode ?? 502, answer.headers)
-    answer.pipe(res)
+  const upstream = http.request(
+    { host: '127.0.0.1', port: DSH_PORT, method: req.method, path: req.url, headers: req.headers },
+    answer => {
+      res.writeHead(answer.statusCode ?? 502, answer.headers)
+      answer.pipe(res)
+    },
+  )
+  upstream.on('error', () => {
+    if (!res.headersSent) page(res, 502, '客户端正在启动', '请几秒后刷新页面。', false)
+    else res.destroy()
   })
-  upstream.on('error', () => { if (!res.headersSent) page(res, 502, '客户端正在启动', '请几秒后刷新页面。', false); else res.destroy() })
   req.pipe(upstream)
 }
 
 /** The workbench itself, or ORYH sign-in when DSH does not recognise this browser. */
 function index(req, res) {
-  const upstream = http.request({ host: '127.0.0.1', port: DSH_PORT, method: req.method, path: req.url, headers: req.headers }, answer => {
-    if (answer.statusCode === 401) {
-      answer.resume()
-      log('index: not signed in to DSH, starting ORYH sign-in')
-      res.writeHead(303, { location: '/oryh/login', 'cache-control': 'no-store' })
-      res.end()
-      return
-    }
-    res.writeHead(answer.statusCode ?? 502, answer.headers)
-    answer.pipe(res)
-  })
+  const upstream = http.request(
+    { host: '127.0.0.1', port: DSH_PORT, method: req.method, path: req.url, headers: req.headers },
+    answer => {
+      if (answer.statusCode === 401) {
+        answer.resume()
+        log('index: not signed in to DSH, starting ORYH sign-in')
+        res.writeHead(303, { location: '/oryh/login', 'cache-control': 'no-store' })
+        res.end()
+        return
+      }
+      res.writeHead(answer.statusCode ?? 502, answer.headers)
+      answer.pipe(res)
+    },
+  )
   upstream.on('error', () => page(res, 502, '客户端正在启动', '请几秒后刷新页面。', false))
   upstream.end()
 }
@@ -137,7 +162,8 @@ function health(_req, res) {
 
 function login(req, res) {
   const host = publicHost(req)
-  if (!host) return page(res, 400, '无法登录', '请通过 ' + PUBLIC_HOSTS.map(h => `http://${h}/`).join(' 或 ') + ' 访问。', false)
+  if (!host)
+    return page(res, 400, '无法登录', '请通过 ' + PUBLIC_HOSTS.map(h => `http://${h}/`).join(' 或 ') + ' 访问。', false)
   const now = Date.now()
   for (const [key, entry] of pending) if (entry.expires < now) pending.delete(key)
   // 96 bits: the state only has to be unguessable for ten minutes, and it is also bound to a cookie.
@@ -147,15 +173,26 @@ function login(req, res) {
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   const consent = ['code', CLIENT_ID, redirectUri, challenge, 'S256', state, '', ''].join('|')
   if (consent.length > CONSENT_LIMIT) {
-    return page(res, 500, '无法登录', `登录参数超出 ORYH 的长度限制（${consent.length} > ${CONSENT_LIMIT}），请缩短 ORYH_OAUTH_CLIENT_ID 或访问地址。`, false)
+    return page(
+      res,
+      500,
+      '无法登录',
+      `登录参数超出 ORYH 的长度限制（${consent.length} > ${CONSENT_LIMIT}），请缩短 ORYH_OAUTH_CLIENT_ID 或访问地址。`,
+      false,
+    )
   }
   pending.set(state, { verifier, redirectUri, expires: now + LOGIN_TTL_MS })
   log(`login: redirecting to ORYH authorize (callback ${redirectUri})`)
   const authorize = new URL('/oauth/authorize', ORYH)
   for (const [key, value] of Object.entries({
-    response_type: 'code', client_id: CLIENT_ID, redirect_uri: redirectUri, state,
-    code_challenge: challenge, code_challenge_method: 'S256',
-  })) authorize.searchParams.set(key, value)
+    response_type: 'code',
+    client_id: CLIENT_ID,
+    redirect_uri: redirectUri,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+  }))
+    authorize.searchParams.set(key, value)
   res.writeHead(303, {
     location: authorize.href,
     'cache-control': 'no-store',
@@ -166,36 +203,71 @@ function login(req, res) {
 
 async function callback(req, res, url) {
   const state = url.searchParams.get('state') ?? ''
-  log(`callback: received (${url.searchParams.has('code') ? 'code' : url.searchParams.get('error') ?? 'no code'})`)
+  log(`callback: received (${url.searchParams.has('code') ? 'code' : (url.searchParams.get('error') ?? 'no code')})`)
   const entry = pending.get(state)
   pending.delete(state)
-  if (!entry || entry.expires < Date.now() || cookie(req, STATE_COOKIE) !== state || `http://${publicHost(req)}/oryh/callback` !== entry.redirectUri) {
+  if (
+    !entry ||
+    entry.expires < Date.now() ||
+    cookie(req, STATE_COOKIE) !== state ||
+    `http://${publicHost(req)}/oryh/callback` !== entry.redirectUri
+  ) {
     log(`callback: rejected (known state ${Boolean(entry)}, state cookie ${cookie(req, STATE_COOKIE) === state})`)
     return page(res, 400, '登录已过期', '这次登录请求已失效，请重新登录。', true)
   }
   if (url.searchParams.get('error')) {
-    return page(res, 403, '没有完成授权', url.searchParams.get('error') === 'access_denied' ? '你拒绝了授权。需要使用客户端时请重新登录。' : '授权没有完成，请重新登录。', true)
+    return page(
+      res,
+      403,
+      '没有完成授权',
+      url.searchParams.get('error') === 'access_denied'
+        ? '你拒绝了授权。需要使用客户端时请重新登录。'
+        : '授权没有完成，请重新登录。',
+      true,
+    )
   }
   const tokens = await oryh('/oauth/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code') ?? '', code_verifier: entry.verifier, client_id: CLIENT_ID, redirect_uri: entry.redirectUri }),
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: url.searchParams.get('code') ?? '',
+      code_verifier: entry.verifier,
+      client_id: CLIENT_ID,
+      redirect_uri: entry.redirectUri,
+    }),
   })
-  if (typeof tokens.access_token !== 'string' || typeof tokens.refresh_token !== 'string') throw new Error('ORYH returned no token')
+  if (typeof tokens.access_token !== 'string' || typeof tokens.refresh_token !== 'string')
+    throw new Error('ORYH returned no token')
   const me = (await oryh('/api/v1/auth/me', { headers: { 'X-API-Key': tokens.access_token } })).data ?? {}
   const principal = { origin: ORYH, tenantId: String(me.tenant_id ?? ''), userId: String(me.id ?? '') }
   if (!principal.tenantId || !principal.userId) throw new Error('ORYH returned no identity')
   const owner = readOwner()
-  if (owner && (owner.origin !== principal.origin || owner.tenantId !== principal.tenantId || owner.userId !== principal.userId)) {
-    await fetch(new URL('/oauth/revoke', ORYH), { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: tokens.refresh_token }), redirect: 'error' }).catch(() => {})
-    return page(res, 403, '这个客户端属于其他账号', `这是 ${escape(owner.email ?? '另一个 ORYH 账号')} 的单用户客户端，请用该账号登录。`, true)
+  if (
+    owner &&
+    (owner.origin !== principal.origin || owner.tenantId !== principal.tenantId || owner.userId !== principal.userId)
+  ) {
+    await fetch(new URL('/oauth/revoke', ORYH), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: tokens.refresh_token }),
+      redirect: 'error',
+    }).catch(() => {})
+    return page(
+      res,
+      403,
+      '这个客户端属于其他账号',
+      `这是 ${escape(owner.email ?? '另一个 ORYH 账号')} 的单用户客户端，请用该账号登录。`,
+      true,
+    )
   }
   if (!owner) writePrivate(OWNER, { ...principal, email: me.email ?? null })
   writePrivate(HANDOFF, {
     origin: ORYH,
     accessKey: tokens.access_token,
     refreshToken: tokens.refresh_token,
-    expiresAt: typeof tokens.expires_in === 'number' ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
+    expiresAt:
+      typeof tokens.expires_in === 'number' ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
   })
   log('callback: ORYH identity verified, credential handed to the client')
   const session = await dshSession(publicHost(req))
@@ -213,12 +285,15 @@ async function callback(req, res, url) {
 async function dshSession(host) {
   await tokenReady
   return new Promise((resolve, reject) => {
-    const request = http.request({ host: '127.0.0.1', port: DSH_PORT, method: 'GET', path: `/?token=${launchToken}`, headers: { host } }, answer => {
-      answer.resume()
-      const cookies = answer.headers['set-cookie']
-      if (answer.statusCode === 303 && cookies?.length) resolve(cookies)
-      else reject(new Error(`DSH did not issue a session (${answer.statusCode})`))
-    })
+    const request = http.request(
+      { host: '127.0.0.1', port: DSH_PORT, method: 'GET', path: `/?token=${launchToken}`, headers: { host } },
+      answer => {
+        answer.resume()
+        const cookies = answer.headers['set-cookie']
+        if (answer.statusCode === 303 && cookies?.length) resolve(cookies)
+        else reject(new Error(`DSH did not issue a session (${answer.statusCode})`))
+      },
+    )
     request.on('error', reject)
     request.end()
   })
@@ -245,7 +320,11 @@ function cookie(req, name) {
 }
 
 function readOwner() {
-  try { return JSON.parse(readFileSync(OWNER, 'utf8')) } catch { return undefined }
+  try {
+    return JSON.parse(readFileSync(OWNER, 'utf8'))
+  } catch {
+    return undefined
+  }
 }
 
 function writePrivate(path, value) {

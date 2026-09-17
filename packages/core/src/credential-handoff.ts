@@ -1,6 +1,6 @@
 import { readFile, rm } from 'node:fs/promises'
-import type { CredentialPair } from './credentials.js'
 import { normalizeOrigin } from './connections.js'
+import type { CredentialPair } from './credentials.js'
 import { OryhClientError } from './errors.js'
 
 /** A credential issued outside this Host, waiting to become a connection. */
@@ -51,7 +51,14 @@ function decodeHandoff(text: string): HandedOffCredential {
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw invalid()
   const { origin, accessKey, refreshToken, expiresAt } = value as Record<string, unknown>
-  if (typeof origin !== 'string' || typeof accessKey !== 'string' || !accessKey || typeof refreshToken !== 'string' || !refreshToken) throw invalid()
+  if (
+    typeof origin !== 'string' ||
+    typeof accessKey !== 'string' ||
+    !accessKey ||
+    typeof refreshToken !== 'string' ||
+    !refreshToken
+  )
+    throw invalid()
   if (expiresAt !== null && expiresAt !== undefined && typeof expiresAt !== 'string') throw invalid()
   return { origin: normalizeOrigin(origin), credential: { accessKey, refreshToken, expiresAt: expiresAt ?? null } }
 }

@@ -1,6 +1,6 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { spawnSync } from 'node:child_process'
 import { dirname, relative, resolve } from 'node:path'
 
 /*
@@ -22,7 +22,9 @@ import { dirname, relative, resolve } from 'node:path'
  */
 
 const require = createRequire(import.meta.url)
-const baseline = JSON.parse(readFileSync(resolve(import.meta.dirname, '../patches/deepseek-harness-external-remote.json'), 'utf8'))
+const baseline = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, '../patches/deepseek-harness-external-remote.json'), 'utf8'),
+)
 const patch = resolve(import.meta.dirname, '../patches', baseline.patch)
 const generatorRoot = dirname(require.resolve('@deepseek-ai/dsh-typert-generator/package.json'))
 const harnessRoot = resolve(generatorRoot, '../../..')
@@ -50,15 +52,19 @@ if (!new RegExp(baseline.artifactFingerprint).test(readFileSync(executing, 'utf8
 //    build blocker — the artifact check above already decides whether generation can succeed.
 const git = spawnSync('git', ['-C', harnessRoot, 'apply', '--check', '--reverse', patch], { encoding: 'utf8' })
 if (git.error !== undefined) {
-  warnings.push([`could not run git to validate ${relative(process.cwd(), patch)} against the DSH tree: ${git.error.message}`])
-} else if (git.status !== 0) {
   warnings.push([
-    `${relative(process.cwd(), patch)} no longer matches ${harnessRoot} verbatim.`,
-    'The build can still succeed if the fix reached the artifact another way, but the stored patch',
-    'has drifted and will not restore the tree after the next DSH sync. Re-export it:',
-    `  git -C ${harnessRoot} diff -- ${[baseline.target].flat().join(' ')} > ${patch}`,
-    (git.stderr ?? '').trim(),
-  ].filter(Boolean))
+    `could not run git to validate ${relative(process.cwd(), patch)} against the DSH tree: ${git.error.message}`,
+  ])
+} else if (git.status !== 0) {
+  warnings.push(
+    [
+      `${relative(process.cwd(), patch)} no longer matches ${harnessRoot} verbatim.`,
+      'The build can still succeed if the fix reached the artifact another way, but the stored patch',
+      'has drifted and will not restore the tree after the next DSH sync. Re-export it:',
+      `  git -C ${harnessRoot} diff -- ${[baseline.target].flat().join(' ')} > ${patch}`,
+      (git.stderr ?? '').trim(),
+    ].filter(Boolean),
+  )
 }
 
 // 3. The pin is informational: an upgrade is allowed, but it is the moment the patch goes stale.

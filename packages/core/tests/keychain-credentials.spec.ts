@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  connectionId,
-  KeychainCredentialVault,
-  OryhClientError,
-  type KeychainEntry,
-} from '../src/index.js'
+import { connectionId, KeychainCredentialVault, type KeychainEntry, OryhClientError } from '../src/index.js'
 
 class FakeKeychain {
   readonly values = new Map<string, string>()
@@ -17,7 +12,7 @@ class FakeKeychain {
         if (this.fail) throw new Error('native keychain unavailable')
         return this.values.get(key) ?? null
       },
-      setPassword: (value) => {
+      setPassword: value => {
         if (this.fail) throw new Error('native keychain unavailable')
         this.values.set(key, value)
       },
@@ -41,7 +36,9 @@ describe('KeychainCredentialVault', () => {
       '{"accessKey":"private-access-key","refreshToken":"private-refresh-token","expiresAt":null}',
     )
     await expect(vault.read(id)).resolves.toEqual({
-      accessKey: 'private-access-key', refreshToken: 'private-refresh-token', expiresAt: null,
+      accessKey: 'private-access-key',
+      refreshToken: 'private-refresh-token',
+      expiresAt: null,
     })
     await vault.remove(id)
     await expect(vault.read(id)).resolves.toBeUndefined()
@@ -55,7 +52,8 @@ describe('KeychainCredentialVault', () => {
 
     await expect(vault.read(id)).rejects.toMatchObject<OryhClientError>({ code: 'credential-store-failed' })
     keychain.fail = true
-    await expect(vault.write(id, { accessKey: 'a', refreshToken: 'r', expiresAt: null }))
-      .rejects.toMatchObject<OryhClientError>({ code: 'credential-store-failed' })
+    await expect(
+      vault.write(id, { accessKey: 'a', refreshToken: 'r', expiresAt: null }),
+    ).rejects.toMatchObject<OryhClientError>({ code: 'credential-store-failed' })
   })
 })

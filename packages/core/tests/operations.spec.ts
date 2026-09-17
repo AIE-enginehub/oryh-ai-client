@@ -11,7 +11,14 @@ import { jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 function identity(employeeId: string) {
   return {
-    permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
+    permissions: [
+      'master_data.manage',
+      'expense.submit_own',
+      'timesheet.submit_own',
+      'approval.record',
+      'order.submit_own',
+      'inventory.manage',
+    ],
     user: {
       id: `user-${employeeId}`,
       email: `${employeeId}@example.com`,
@@ -54,18 +61,20 @@ describe('OperationExecutor', () => {
     await credentials.write(second.id, { accessKey: 'second-key', refreshToken: 'second-refresh', expiresAt: null })
     const fetcher = new ScriptedFetcher([
       jsonResponse(200, {
-        data: [{
-          id: 'todo-1',
-          employee_id: 'employee-1',
-          entity_type: 'project',
-          entity_id: 'project-1',
-          title: 'Review project plan',
-          description: null,
-          todo_type: null,
-          status: 'open',
-          due_at: null,
-          target: { object_type: 'project', title: 'Pilot', deleted: false },
-        }],
+        data: [
+          {
+            id: 'todo-1',
+            employee_id: 'employee-1',
+            entity_type: 'project',
+            entity_id: 'project-1',
+            title: 'Review project plan',
+            description: null,
+            todo_type: null,
+            status: 'open',
+            due_at: null,
+            target: { object_type: 'project', title: 'Pilot', deleted: false },
+          },
+        ],
         meta: { total: 1 },
       }),
     ])
@@ -104,10 +113,17 @@ describe('OperationExecutor', () => {
     await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh-token', expiresAt: null })
     const fetcher = new ScriptedFetcher([
       jsonResponse(200, {
-        data: [{
-          id: 'claim-1', employee_id: 'employee-1', title: '客户拜访交通费', claim_date: '2026-08-28',
-          currency: 'CNY', status: 'submitted', submitted_at: '2026-08-28T08:00:00Z',
-        }],
+        data: [
+          {
+            id: 'claim-1',
+            employee_id: 'employee-1',
+            title: '客户拜访交通费',
+            claim_date: '2026-08-28',
+            currency: 'CNY',
+            status: 'submitted',
+            submitted_at: '2026-08-28T08:00:00Z',
+          },
+        ],
         meta: { total: 1 },
       }),
     ])
@@ -144,8 +160,15 @@ describe('OperationExecutor', () => {
     })
     connections.markVerified(connection.id, {
       ...identity('employee-1'),
-      permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
-    user: {
+      permissions: [
+        'master_data.manage',
+        'expense.submit_own',
+        'timesheet.submit_own',
+        'approval.record',
+        'order.submit_own',
+        'inventory.manage',
+      ],
+      user: {
         ...identity('employee-1').user,
         employeeId: null,
       },
@@ -155,7 +178,9 @@ describe('OperationExecutor', () => {
     const fetcher = new ScriptedFetcher([])
     const executor = new OperationExecutor(connections, new OryhHttpClient(connections, credentials, fetcher.fetch))
 
-    await expect(executor.execute(connection.id, 'my-expense-claims')).rejects.toMatchObject({ code: 'employee-required' })
+    await expect(executor.execute(connection.id, 'my-expense-claims')).rejects.toMatchObject({
+      code: 'employee-required',
+    })
     expect(fetcher.calls).toEqual([])
   })
 })
@@ -167,14 +192,26 @@ it('discards cached and pending results when a connection is invalidated', async
   const credentials = new MemoryCredentialVault()
   await credentials.write(connection.id, { accessKey: 'test', refreshToken: 'test', expiresAt: null })
   const response = jsonResponse(200, { data: [], meta: { total: 0 } })
-  let release: (value: typeof response) => void = () => { throw new Error('Request not started') }
+  let release: (value: typeof response) => void = () => {
+    throw new Error('Request not started')
+  }
   let started: () => void = () => {}
-  const pendingStarted = new Promise<void>(resolve => { started = resolve })
+  const pendingStarted = new Promise<void>(resolve => {
+    started = resolve
+  })
   let calls = 0
-  const executor = new OperationExecutor(connections, new OryhHttpClient(connections, credentials, async () => {
-    calls += 1
-    return calls === 1 ? response : new Promise(resolve => { release = resolve; started() })
-  }))
+  const executor = new OperationExecutor(
+    connections,
+    new OryhHttpClient(connections, credentials, async () => {
+      calls += 1
+      return calls === 1
+        ? response
+        : new Promise(resolve => {
+            release = resolve
+            started()
+          })
+    }),
+  )
   const cached = await executor.execute(connection.id, 'list-projects')
   expect(() => executor.reuse(connection.id, cached.id, 'my-open-todos')).toThrow('another operation')
   const pending = executor.execute(connection.id, 'list-projects')

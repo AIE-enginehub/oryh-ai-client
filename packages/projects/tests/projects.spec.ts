@@ -1,7 +1,21 @@
-import { describe, it, expect } from 'vitest'
-import { validateProject, ProjectService, type ProjectConnection, type ProjectFields, type ProjectHttp, type ProjectRecord, type ProjectStore } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
+import {
+  type ProjectConnection,
+  type ProjectFields,
+  type ProjectHttp,
+  type ProjectRecord,
+  ProjectService,
+  type ProjectStore,
+  validateProject,
+} from '../src/index.js'
 
-const fields: ProjectFields = { project_name: '项目测试', project_code: 'QA-1', client: '客户', start_date: '2026-09-01', end_date: '2026-09-30' }
+const fields: ProjectFields = {
+  project_name: '项目测试',
+  project_code: 'QA-1',
+  client: '客户',
+  start_date: '2026-09-01',
+  end_date: '2026-09-30',
+}
 const connection: ProjectConnection = {
   origin: 'https://oryh.example',
   identity: { permissions: ['master_data.manage'], user: { id: 'u', employeeId: 'e' }, tenant: { id: 't' } },
@@ -16,7 +30,13 @@ const memoryStore = (): ProjectStore => {
     },
   }
 }
-const service = (http: ProjectHttp) => new ProjectService(memoryStore(), http, () => connection, async () => connection)
+const service = (http: ProjectHttp) =>
+  new ProjectService(
+    memoryStore(),
+    http,
+    () => connection,
+    async () => connection,
+  )
 
 describe('project field rules', () => {
   it('accepts a complete set and rejects each documented rule', () => {

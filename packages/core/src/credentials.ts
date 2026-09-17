@@ -134,16 +134,17 @@ function decodeCredential(raw: string): CredentialPair {
 }
 
 function validateCredential(credential: CredentialPair): void {
-  if (typeof credential.accessKey !== 'string' || credential.accessKey.length === 0
-    || typeof credential.refreshToken !== 'string' || credential.refreshToken.length === 0
-    || (credential.expiresAt !== null && typeof credential.expiresAt !== 'string')) {
+  if (
+    typeof credential.accessKey !== 'string' ||
+    credential.accessKey.length === 0 ||
+    typeof credential.refreshToken !== 'string' ||
+    credential.refreshToken.length === 0 ||
+    (credential.expiresAt !== null && typeof credential.expiresAt !== 'string')
+  ) {
     throw new TypeError('Invalid ORYH credential pair')
   }
 }
 
 function credentialStoreError(operation: 'read' | 'write' | 'remove'): OryhClientError {
-  return new OryhClientError(
-    `ORYH credential store ${operation} failed.`,
-    'credential-store-failed',
-  )
+  return new OryhClientError(`ORYH credential store ${operation} failed.`, 'credential-store-failed')
 }

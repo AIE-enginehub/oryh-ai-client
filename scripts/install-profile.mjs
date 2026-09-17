@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+
 const home = process.env.DSH_HOME ?? join(homedir(), 'Library/Application Support/ORYH AI Client/harness')
 const profile = 'oryh-web'
 const directory = join(home, 'profiles', profile)

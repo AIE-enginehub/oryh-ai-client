@@ -55,7 +55,14 @@ export interface SkillPrincipal {
  * @returns true only when both are known and name the same deployment, tenant, user and employee.
  */
 export function samePrincipal(a: SkillPrincipal | undefined, b: SkillPrincipal | undefined): boolean {
-  return a !== undefined && b !== undefined && a.origin === b.origin && a.tenantId === b.tenantId && a.userId === b.userId && a.employeeId === b.employeeId
+  return (
+    a !== undefined &&
+    b !== undefined &&
+    a.origin === b.origin &&
+    a.tenantId === b.tenantId &&
+    a.userId === b.userId &&
+    a.employeeId === b.employeeId
+  )
 }
 
 /** Result of a sync attempt, shaped for a status line rather than a log. */
@@ -74,7 +81,12 @@ export interface SkillSyncResult {
  */
 type Delivery = 'mcp'
 
-interface InstallRecord { delivery?: Delivery; manifest?: readonly SkillManifestEntry[]; installed?: readonly string[]; principal?: SkillPrincipal }
+interface InstallRecord {
+  delivery?: Delivery
+  manifest?: readonly SkillManifestEntry[]
+  installed?: readonly string[]
+  principal?: SkillPrincipal
+}
 
 /** Paths a skill is allowed to create, so a server-supplied name cannot write outside the skills root. */
 const SAFE_ENTRY = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/
@@ -126,7 +138,11 @@ export class SkillBundleService {
    * @param root - absolute skills directory, scanned by the agent runtime.
    * @param principalOf - the verified identity behind a connection; without it no holder is recorded.
    */
-  constructor(private readonly http: OryhHttpClient, private readonly root: string, private readonly principalOf?: (connectionId: ConnectionId) => Promise<SkillPrincipal>) {
+  constructor(
+    private readonly http: OryhHttpClient,
+    private readonly root: string,
+    private readonly principalOf?: (connectionId: ConnectionId) => Promise<SkillPrincipal>,
+  ) {
     this.#mcp = new OryhMcpClient(http)
   }
 
@@ -138,7 +154,10 @@ export class SkillBundleService {
    * @returns the holder, `null` when no holder is recorded, or `undefined` while unknown.
    */
   installedPrincipal(): SkillPrincipal | null | undefined {
-    if (this.#installed === undefined) void this.record().then(record => { if (this.#installed === undefined) this.#installed = record.principal ?? null })
+    if (this.#installed === undefined)
+      void this.record().then(record => {
+        if (this.#installed === undefined) this.#installed = record.principal ?? null
+      })
     return this.#installed
   }
 
@@ -151,7 +170,13 @@ export class SkillBundleService {
       if (row === null || typeof row !== 'object') return []
       const entry = row as Record<string, unknown>
       return typeof entry.name === 'string'
-        ? [{ name: entry.name, ...(typeof entry.version === 'string' ? { version: entry.version } : {}), ...(typeof entry.hash === 'string' ? { hash: entry.hash } : {}) }]
+        ? [
+            {
+              name: entry.name,
+              ...(typeof entry.version === 'string' ? { version: entry.version } : {}),
+              ...(typeof entry.hash === 'string' ? { hash: entry.hash } : {}),
+            },
+          ]
         : []
     })
   }
@@ -160,7 +185,7 @@ export class SkillBundleService {
   private async record(): Promise<InstallRecord> {
     try {
       const parsed: unknown = JSON.parse(await readFile(join(this.root, '.oryh-manifest.json'), 'utf8'))
-      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as InstallRecord : {}
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as InstallRecord) : {}
     } catch {
       return {}
     }
@@ -187,11 +212,20 @@ export class SkillBundleService {
   async sync(connectionId: ConnectionId, force = false): Promise<SkillSyncResult> {
     const [wanted, principal] = await Promise.all([this.manifest(connectionId), this.principalOf?.(connectionId)])
     const record = await this.record()
-    const same = record.delivery === 'mcp' && record.manifest !== undefined && JSON.stringify(record.manifest) === JSON.stringify(wanted)
-      && (principal === undefined || samePrincipal(record.principal, principal))
+    const same =
+      record.delivery === 'mcp' &&
+      record.manifest !== undefined &&
+      JSON.stringify(record.manifest) === JSON.stringify(wanted) &&
+      (principal === undefined || samePrincipal(record.principal, principal))
     if (same && !force) {
       this.#installed = record.principal ?? null
-      return { installed: false, root: this.root, skills: wanted.map(s => s.name), message: '技能已是最新。', ...(record.principal ? { principal: record.principal } : {}) }
+      return {
+        installed: false,
+        root: this.root,
+        skills: wanted.map(s => s.name),
+        message: '技能已是最新。',
+        ...(record.principal ? { principal: record.principal } : {}),
+      }
     }
 
     // Read everything before writing anything: a partially applied install is worse than a refused
@@ -199,7 +233,8 @@ export class SkillBundleService {
     const prompts = (await this.#mcp.prompts(connectionId)).filter(prompt => !withheld(prompt.name))
     if (prompts.length === 0) throw new OryhClientError('ORYH 没有通过 MCP 提供任何技能。', 'invalid-response')
     for (const prompt of prompts) {
-      if (prompt.name.includes('/')) throw new OryhClientError(`Refused a skill entry with an unsafe name: ${prompt.name}`, 'invalid-response')
+      if (prompt.name.includes('/'))
+        throw new OryhClientError(`Refused a skill entry with an unsafe name: ${prompt.name}`, 'invalid-response')
       resolveEntry(this.root, prompt.name)
     }
     const names = new Set(prompts.map(prompt => prompt.name))
@@ -212,9 +247,14 @@ export class SkillBundleService {
     }
     const files = (await this.#mcp.resources(connectionId)).flatMap(uri => {
       const match = SKILL_RESOURCE.exec(uri)
-      return match !== null && names.has(match[1]!) && match[2] !== 'SKILL.md' ? [[uri, `${match[1]}/${match[2]}`] as const] : []
+      return match !== null && names.has(match[1]!) && match[2] !== 'SKILL.md'
+        ? [[uri, `${match[1]}/${match[2]}`] as const]
+        : []
     })
-    const texts = await this.#mcp.resourceTexts(connectionId, files.map(([uri]) => uri))
+    const texts = await this.#mcp.resourceTexts(
+      connectionId,
+      files.map(([uri]) => uri),
+    )
     for (const [uri, target] of files) {
       const text = texts.get(uri)
       if (text !== undefined) planned.push([target, text])
@@ -235,9 +275,20 @@ export class SkillBundleService {
       await writeFile(destination, text)
     }
     await mkdir(this.root, { recursive: true })
-    const written: InstallRecord = { delivery: 'mcp', manifest: wanted, installed: owned, ...(principal ? { principal } : {}) }
+    const written: InstallRecord = {
+      delivery: 'mcp',
+      manifest: wanted,
+      installed: owned,
+      ...(principal ? { principal } : {}),
+    }
     await writeFile(join(this.root, '.oryh-manifest.json'), JSON.stringify(written, null, 2))
     this.#installed = principal ?? null
-    return { installed: true, root: this.root, skills: owned, message: `已从 ORYH MCP 安装 ${owned.length} 个技能。`, ...(principal ? { principal } : {}) }
+    return {
+      installed: true,
+      root: this.root,
+      skills: owned,
+      message: `已从 ORYH MCP 安装 ${owned.length} 个技能。`,
+      ...(principal ? { principal } : {}),
+    }
   }
 }

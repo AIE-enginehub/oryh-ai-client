@@ -5,16 +5,19 @@
   "description": "ORYH AI client: DeepSeek Harness plugins and the oryh-web profile for the ORYH business workbench.",
   "packageManager": "pnpm@11.19.0",
   "scripts": {
-    "build": "node scripts/check-dsh-patch.mjs && pnpm --filter @oryh/dsh-host... build && pnpm --filter @oryh/ai-client-workspace build && node scripts/generate-dsh-remote.mjs && pnpm --filter @oryh/dsh-client build",
+    "build": "node scripts/check-dsh-patch.mjs && pnpm --filter \"{./packages/host-*}...\" build && pnpm --filter @oryh/ai-client-workspace build && node scripts/generate-dsh-remote.mjs && pnpm --filter \"./packages/client-*\" build",
     "start": "DSH_HOME=\"${DSH_HOME:-$HOME/Library/Application Support/ORYH AI Client/harness}\" dsh --profile oryh-web --port 4173",
     "start:alt": "DSH_HOME=\"${DSH_HOME:-$HOME/Library/Application Support/ORYH AI Client/harness}\" dsh --profile oryh-web --port 4174 --no-open",
     "profile:dump": "DSH_HOME=\"${DSH_HOME:-$HOME/Library/Application Support/ORYH AI Client/harness}\" dsh --profile oryh-web --dump-config",
     "profile:install": "node scripts/install-profile.mjs",
     "test": "pnpm --recursive run test",
     "typecheck": "pnpm run build && pnpm --recursive run typecheck",
-    "verify": "pnpm run typecheck && pnpm run test"
+    "lint": "biome check --diagnostic-level=error",
+    "format": "biome format --write",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.3.4",
     "@deepseek-ai/dsh": "link:../deepseek-harness/apps/cli",
     "@deepseek-ai/dsh-typert-generator": "link:../deepseek-harness/packages/typert/generator",
     "@types/node": "^22.20.1",

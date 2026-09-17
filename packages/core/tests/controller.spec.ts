@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  MemoryCredentialVault,
-  OryhClientController,
-  OryhClientHost,
-  OryhClientRemoteAdapter,
-} from '../src/index.js'
+import { MemoryCredentialVault, OryhClientController, OryhClientHost, OryhClientRemoteAdapter } from '../src/index.js'
 import { jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 describe('OryhClientController', () => {
@@ -37,22 +32,32 @@ describe('OryhClientController', () => {
           name: 'Member',
           role: 'member',
           employee_id: 'employee-1',
-          permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'], tenant_id: 'tenant-1',
+          permissions: [
+            'master_data.manage',
+            'expense.submit_own',
+            'timesheet.submit_own',
+            'approval.record',
+            'order.submit_own',
+            'inventory.manage',
+          ],
+          tenant_id: 'tenant-1',
           tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
           environment_id: 'test',
         },
         meta: {},
       }),
       jsonResponse(200, {
-        data: [{
-          id: 'project-1',
-          project_code: 'P-01',
-          project_name: 'Pilot',
-          client: null,
-          status: 'active',
-          start_date: null,
-          end_date: null,
-        }],
+        data: [
+          {
+            id: 'project-1',
+            project_code: 'P-01',
+            project_name: 'Pilot',
+            client: null,
+            status: 'active',
+            start_date: null,
+            end_date: null,
+          },
+        ],
         meta: { total: 1 },
       }),
     ])
@@ -84,11 +89,14 @@ describe('OryhClientController', () => {
     const fetcher = new ScriptedFetcher([
       jsonResponse(201, {
         data: {
-          device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+          device_code: 'private-device-code',
+          user_code: 'ABCD-EFGH',
           verification_uri: 'https://oryh.example/web/device',
           verification_uri_complete: 'https://oryh.example/web/device?code=ABCD-EFGH',
-          expires_in: 900, interval: 5,
-        }, meta: {},
+          expires_in: 900,
+          interval: 5,
+        },
+        meta: {},
       }),
     ])
     const host = new OryhClientHost({ credentialVault: new MemoryCredentialVault(), fetcher: fetcher.fetch })

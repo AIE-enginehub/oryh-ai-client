@@ -57,7 +57,15 @@ const isObject = (value: unknown): value is Json => value !== null && typeof val
 /** The text blocks of an MCP content array, joined; other block types are named rather than dropped. */
 function textOf(content: unknown): string {
   if (!Array.isArray(content)) return ''
-  return content.map(block => isObject(block) ? (block.type === 'text' && typeof block.text === 'string' ? block.text : `[${String(block.type)}]`) : '').join('\n')
+  return content
+    .map(block =>
+      isObject(block)
+        ? block.type === 'text' && typeof block.text === 'string'
+          ? block.text
+          : `[${String(block.type)}]`
+        : '',
+    )
+    .join('\n')
 }
 
 export class OryhMcpClient {
@@ -75,12 +83,14 @@ export class OryhMcpClient {
     return rows.flatMap(row => {
       if (!isObject(row) || typeof row.name !== 'string') return []
       const annotations = isObject(row.annotations) ? row.annotations : {}
-      return [{
-        name: row.name,
-        description: typeof row.description === 'string' ? row.description : '',
-        inputSchema: isObject(row.inputSchema) ? row.inputSchema : { type: 'object', properties: {} },
-        readOnly: annotations.readOnlyHint === true,
-      }]
+      return [
+        {
+          name: row.name,
+          description: typeof row.description === 'string' ? row.description : '',
+          inputSchema: isObject(row.inputSchema) ? row.inputSchema : { type: 'object', properties: {} },
+          readOnly: annotations.readOnlyHint === true,
+        },
+      ]
     })
   }
 
@@ -92,10 +102,21 @@ export class OryhMcpClient {
    * @param options - `operation`: on the server, the chat write this call is, for the control process to admit and record.
    * @returns the answered text; `isError` when the server reports the call failed.
    */
-  async callTool(connectionId: ConnectionId, name: string, args: Json, options: { readonly operation?: OryhOperation } = {}): Promise<OryhMcpToolResult> {
-    const [result] = await this.exchange(connectionId, [{ method: 'tools/call', params: { name, arguments: args } }], options.operation)
+  async callTool(
+    connectionId: ConnectionId,
+    name: string,
+    args: Json,
+    options: { readonly operation?: OryhOperation } = {},
+  ): Promise<OryhMcpToolResult> {
+    const [result] = await this.exchange(
+      connectionId,
+      [{ method: 'tools/call', params: { name, arguments: args } }],
+      options.operation,
+    )
     const reply = isObject(result) ? result : {}
-    const text = textOf(reply.content) || (reply.structuredContent === undefined ? '（没有返回内容）' : JSON.stringify(reply.structuredContent))
+    const text =
+      textOf(reply.content) ||
+      (reply.structuredContent === undefined ? '（没有返回内容）' : JSON.stringify(reply.structuredContent))
     return { text, isError: reply.isError === true }
   }
 
@@ -105,9 +126,11 @@ export class OryhMcpClient {
    */
   async prompts(connectionId: ConnectionId): Promise<OryhMcpPrompt[]> {
     const rows = await this.pages(connectionId, 'prompts/list', 'prompts')
-    return rows.flatMap(row => isObject(row) && typeof row.name === 'string'
-      ? [{ name: row.name, description: typeof row.description === 'string' ? row.description : '' }]
-      : [])
+    return rows.flatMap(row =>
+      isObject(row) && typeof row.name === 'string'
+        ? [{ name: row.name, description: typeof row.description === 'string' ? row.description : '' }]
+        : [],
+    )
   }
 
   /**
@@ -117,11 +140,20 @@ export class OryhMcpClient {
    * @returns text by prompt name; a prompt the server answered without text is absent.
    */
   async promptTexts(connectionId: ConnectionId, names: readonly string[]): Promise<Map<string, string>> {
-    const replies = await this.exchange(connectionId, names.map(name => ({ method: 'prompts/get', params: { name } })))
+    const replies = await this.exchange(
+      connectionId,
+      names.map(name => ({ method: 'prompts/get', params: { name } })),
+    )
     const texts = new Map<string, string>()
     replies.forEach((reply, index) => {
       const messages = isObject(reply) && Array.isArray(reply.messages) ? reply.messages : []
-      const text = messages.map(message => isObject(message) && isObject(message.content) && typeof message.content.text === 'string' ? message.content.text : '').join('\n')
+      const text = messages
+        .map(message =>
+          isObject(message) && isObject(message.content) && typeof message.content.text === 'string'
+            ? message.content.text
+            : '',
+        )
+        .join('\n')
       if (text) texts.set(names[index]!, text)
     })
     return texts
@@ -133,7 +165,7 @@ export class OryhMcpClient {
    */
   async resources(connectionId: ConnectionId): Promise<string[]> {
     const rows = await this.pages(connectionId, 'resources/list', 'resources')
-    return rows.flatMap(row => isObject(row) && typeof row.uri === 'string' ? [row.uri] : [])
+    return rows.flatMap(row => (isObject(row) && typeof row.uri === 'string' ? [row.uri] : []))
   }
 
   /**
@@ -143,11 +175,16 @@ export class OryhMcpClient {
    * @returns text by URI; a resource the server answered without text is absent.
    */
   async resourceTexts(connectionId: ConnectionId, uris: readonly string[]): Promise<Map<string, string>> {
-    const replies = await this.exchange(connectionId, uris.map(uri => ({ method: 'resources/read', params: { uri } })))
+    const replies = await this.exchange(
+      connectionId,
+      uris.map(uri => ({ method: 'resources/read', params: { uri } })),
+    )
     const texts = new Map<string, string>()
     replies.forEach((reply, index) => {
       const contents = isObject(reply) && Array.isArray(reply.contents) ? reply.contents : []
-      const text = contents.map(content => isObject(content) && typeof content.text === 'string' ? content.text : '').join('')
+      const text = contents
+        .map(content => (isObject(content) && typeof content.text === 'string' ? content.text : ''))
+        .join('')
       if (text) texts.set(uris[index]!, text)
     })
     return texts
@@ -159,7 +196,9 @@ export class OryhMcpClient {
     const seen = new Set<string>()
     let cursor: string | undefined
     do {
-      const [result] = await this.exchange(connectionId, [{ method, ...(cursor === undefined ? {} : { params: { cursor } }) }])
+      const [result] = await this.exchange(connectionId, [
+        { method, ...(cursor === undefined ? {} : { params: { cursor } }) },
+      ])
       const page = isObject(result) ? result : {}
       if (Array.isArray(page[key])) rows.push(...page[key])
       cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined
@@ -177,17 +216,37 @@ export class OryhMcpClient {
    * @param requests - requests to send.
    * @returns each request's `result`.
    */
-  private async exchange(connectionId: ConnectionId, requests: readonly RpcRequest[], operation?: OryhOperation): Promise<unknown[]> {
+  private async exchange(
+    connectionId: ConnectionId,
+    requests: readonly RpcRequest[],
+    operation?: OryhOperation,
+  ): Promise<unknown[]> {
     const results: unknown[] = []
     for (let start = 0; start < requests.length; start += BATCH_SIZE) {
       const chunk = requests.slice(start, start + BATCH_SIZE)
-      const messages = chunk.map(request => ({ jsonrpc: '2.0', id: ++this.#nextId, method: request.method, ...(request.params === undefined ? {} : { params: request.params }) }))
-      const body = await this.http.request(connectionId, { path: '/mcp', root: true, method: 'POST', body: messages.length === 1 ? messages[0] : messages, ...operation ? { operation } : {} })
+      const messages = chunk.map(request => ({
+        jsonrpc: '2.0',
+        id: ++this.#nextId,
+        method: request.method,
+        ...(request.params === undefined ? {} : { params: request.params }),
+      }))
+      const body = await this.http.request(connectionId, {
+        path: '/mcp',
+        root: true,
+        method: 'POST',
+        body: messages.length === 1 ? messages[0] : messages,
+        ...(operation ? { operation } : {}),
+      })
       const replies = new Map((Array.isArray(body) ? body : [body]).filter(isObject).map(reply => [reply.id, reply]))
       messages.forEach((message, index) => {
         const reply = replies.get(message.id)
-        if (reply === undefined) throw new OryhClientError(`ORYH MCP 没有回应 ${chunk[index]!.method}。`, 'invalid-response')
-        if (isObject(reply.error)) throw new OryhClientError(`ORYH MCP ${chunk[index]!.method} 失败：${String(reply.error.message ?? '')}`, 'request-failed')
+        if (reply === undefined)
+          throw new OryhClientError(`ORYH MCP 没有回应 ${chunk[index]!.method}。`, 'invalid-response')
+        if (isObject(reply.error))
+          throw new OryhClientError(
+            `ORYH MCP ${chunk[index]!.method} 失败：${String(reply.error.message ?? '')}`,
+            'request-failed',
+          )
         results.push(reply.result)
       })
     }

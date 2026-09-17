@@ -13,15 +13,19 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 const env = process.env
-if (!env.DEEPSEEK_API_KEY?.trim()) throw new Error('DEEPSEEK_API_KEY is required: set ORYH_MODEL_API_KEY in .env next to compose.yaml')
+if (!env.DEEPSEEK_API_KEY?.trim())
+  throw new Error('DEEPSEEK_API_KEY is required: set ORYH_MODEL_API_KEY in .env next to compose.yaml')
 const model = env.ORYH_MODEL?.trim() || 'deepseek-v4-flash'
 const effort = env.ORYH_MODEL_REASONING_EFFORT?.trim() || 'high'
-if (!['off', 'low', 'high', 'max'].includes(effort)) throw new Error('ORYH_MODEL_REASONING_EFFORT must be off, low, high or max')
+if (!['off', 'low', 'high', 'max'].includes(effort))
+  throw new Error('ORYH_MODEL_REASONING_EFFORT must be off, low, high or max')
 if (env.DEEPSEEK_BASE_URL) new URL(env.DEEPSEEK_BASE_URL)
 
 const home = env.DSH_HOME
 if (!home) throw new Error('DSH_HOME is required')
-const YAML = createRequire(join(env.DSH_HARNESS_ROOT ?? '/opt/deepseek-harness', 'packages/settings/settings-file/package.json'))('yaml')
+const YAML = createRequire(
+  join(env.DSH_HARNESS_ROOT ?? '/opt/deepseek-harness', 'packages/settings/settings-file/package.json'),
+)('yaml')
 
 const patch = [
   { id: 'agent-default-model', config: { provider: 'deepseek-official', model } },
@@ -30,12 +34,19 @@ const patch = [
   { id: 'ui-settings-models', disabled: true },
   { id: 'ui-model-selection', disabled: true },
 ]
-writeFileSync(join(home, 'profiles', 'oryh-web', 'cordis.patch.yml'),
-  '# Written by deploy/local/model-config.mjs at every container start; edits here are replaced.\n' + YAML.stringify(patch))
+writeFileSync(
+  join(home, 'profiles', 'oryh-web', 'cordis.patch.yml'),
+  '# Written by deploy/local/model-config.mjs at every container start; edits here are replaced.\n' +
+    YAML.stringify(patch),
+)
 
 const settingsPath = join(home, 'settings.yaml')
 let settings
-try { settings = YAML.parse(readFileSync(settingsPath, 'utf8')) } catch { settings = undefined }
+try {
+  settings = YAML.parse(readFileSync(settingsPath, 'utf8'))
+} catch {
+  settings = undefined
+}
 if (settings && typeof settings === 'object') {
   const saved = ['llm-deepseek', 'agent-default-model'].filter(key => key in settings)
   if (saved.length) {
@@ -43,4 +54,6 @@ if (settings && typeof settings === 'object') {
     writeFileSync(settingsPath, YAML.stringify(settings), { mode: 0o600 })
   }
 }
-console.log(`Model: ${model} (reasoning ${effort}) via ${env.DEEPSEEK_BASE_URL ? new URL(env.DEEPSEEK_BASE_URL).host : 'api.deepseek.com'}, configured by the deployment.`)
+console.log(
+  `Model: ${model} (reasoning ${effort}) via ${env.DEEPSEEK_BASE_URL ? new URL(env.DEEPSEEK_BASE_URL).host : 'api.deepseek.com'}, configured by the deployment.`,
+)

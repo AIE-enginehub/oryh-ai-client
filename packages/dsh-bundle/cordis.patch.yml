@@ -8,15 +8,10 @@
 - id: directory-picker
   disabled: true
 # The Chat pane is a generic ORYH agent (ADR-0009): it discovers ORYH's skills, loads them with
-# the `skill` tool, and runs their `scripts/oryh_request.py` steps through the shell. All three
-# already ship with the agent preset, so nothing is re-enabled at the host plane — `skill-filesystem`,
-# `tool-skill` and `tool-bash` are parked there by the web-app profile ON PURPOSE (the preset owns
-# per-agent discovery), and a second host-plane `skill` registration would shadow the preset's own,
-# which is exactly what suppresses the session skill catalog. What was actually blocking them was
-# our own `tools.restrict({allow})` list in business-chat.ts, which now names `skill` and `bash`.
-# This deliberately reverses the narrow catalog of ADR-0007 — see ADR-0009 for why and for what
-# still bounds it (the API's own require_permission, and bundles that only carry skills the
-# holder's role covers).
+# the `skill` tool, and calls ORYH through the tools the Host registers from ORYH's MCP (ADR-0012).
+# `skill-filesystem`, `tool-skill` and `tool-bash` ship with the agent preset and are parked at the
+# host plane by the web-app profile ON PURPOSE (the preset owns per-agent discovery); a second
+# host-plane `skill` registration would shadow the preset's own and suppress the session skill catalog.
 # Chat header, two controls that cannot mean anything here. "Open locally" launches a local
 # application on the session's workspace directory, which a business workbench user has no reason
 # to open; the agent-preset picker only ever shows one label while a single preset exists. Disabled
@@ -32,14 +27,43 @@
   config:
     provider: deepseek-official
     model: deepseek-v4-flash
+# The ORYH Host: one connection layer, the pane bridge, one plugin per business page, and the agent
+# that steers them. Order matters only where `inject` says so: pages need the pane, the agent needs
+# the pages' contributions to be there when it installs its policy.
 - insert:
     - id: oryh-directory-picker-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
     - id: oryh-directory-picker-ui
       name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
-    - id: oryh-client-host
-      name: '@oryh/dsh-host'
+    - id: oryh-connection
+      name: '@oryh/dsh-connection'
       config:
         developmentOnly: true
-    - id: oryh-client-ui
-      name: '@oryh/dsh-client'
+    - id: oryh-pane
+      name: '@oryh/dsh-pane'
+    - id: oryh-todos
+      name: '@oryh/dsh-todos'
+    - id: oryh-timesheets
+      name: '@oryh/dsh-timesheets'
+    - id: oryh-expenses
+      name: '@oryh/dsh-expenses'
+    - id: oryh-projects
+      name: '@oryh/dsh-projects'
+    - id: oryh-records
+      name: '@oryh/dsh-records'
+    - id: oryh-agent
+      name: '@oryh/dsh-agent'
+    # The browser: the frame first (menu, connection screen, pane bridge, page kit), then one page
+    # plugin per business page. A page plugin's row can be dropped together with its Host row.
+    - id: oryh-client-frame
+      name: '@oryh/dsh-client-frame'
+    - id: oryh-client-todos
+      name: '@oryh/dsh-client-todos'
+    - id: oryh-client-timesheets
+      name: '@oryh/dsh-client-timesheets'
+    - id: oryh-client-expenses
+      name: '@oryh/dsh-client-expenses'
+    - id: oryh-client-projects
+      name: '@oryh/dsh-client-projects'
+    - id: oryh-client-records
+      name: '@oryh/dsh-client-records'

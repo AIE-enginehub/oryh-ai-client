@@ -1,29 +1,45 @@
-import { WorkspaceTypertGenerator } from '@deepseek-ai/dsh-typert-generator'
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { WorkspaceTypertGenerator } from '@deepseek-ai/dsh-typert-generator'
 
 const root = process.cwd()
-const artifacts = [...new WorkspaceTypertGenerator(root).generate(['@oryh/dsh-host'], ['host'])]
+/** Every Host plugin that publishes a Remote namespace; each gets its own generated artifacts. */
+export const REMOTE_PACKAGES = [
+  '@oryh/dsh-connection',
+  '@oryh/dsh-pane',
+  '@oryh/dsh-todos',
+  '@oryh/dsh-timesheets',
+  '@oryh/dsh-expenses',
+  '@oryh/dsh-projects',
+  '@oryh/dsh-records',
+]
+const artifacts = [...new WorkspaceTypertGenerator(root).generate(REMOTE_PACKAGES, ['host'])]
 
 /*
  * Assert what was generated, not just that generation ran.
  *
  * Removing the patch and running this was the way to find out what actually happens: the generator
  * throws "publishes Remote artifacts but has no Remote methods". That is a useful failure, but it
- * is upstream's and it is conditional — it fires because this package lists its Remote artifacts in
+ * is upstream's and it is conditional — it fires because a package lists its Remote artifacts in
  * `files`, and a plugin that does not would get empty output and no error at all. Asserting the
  * positive property here does not depend on either condition holding.
  *
- * Both shapes are checked because they travel different paths through the analyzer: a unary method
- * returns Promise<RemoteResult<T>>, a streaming one returns AsyncIterable<T> with a trailing
- * AbortSignal. Validation runs before any write, so a failure leaves the previous artifacts intact.
+ * Every package must have a unary Remote; the pane must also have the streaming one, which travels a
+ * different path through the analyzer (AsyncIterable<T> with a trailing AbortSignal). Validation runs
+ * before any write, so a failure leaves the previous artifacts intact.
  */
-const remote = artifacts.find(artifact => artifact.remote)?.remote
 const missing = []
-if (remote === undefined) missing.push('no Remote client descriptors at all')
-else {
-  if (!/=>\s*Promise<RemoteResult</.test(remote.dts)) missing.push('no unary Remote (=> Promise<RemoteResult<…>>)')
-  if (!/=>\s*AsyncIterable</.test(remote.dts)) missing.push('no streaming Remote (=> AsyncIterable<…>)')
+for (const name of REMOTE_PACKAGES) {
+  const artifact = artifacts.find(a => a.package === name)
+  const remote = artifact?.remote
+  if (remote === undefined) {
+    missing.push(`${name}: no Remote client descriptors at all`)
+    continue
+  }
+  if (!/=>\s*Promise<RemoteResult</.test(remote.dts))
+    missing.push(`${name}: no unary Remote (=> Promise<RemoteResult<…>>)`)
+  if (name === '@oryh/dsh-pane' && !/=>\s*AsyncIterable</.test(remote.dts))
+    missing.push(`${name}: no streaming Remote (=> AsyncIterable<…>)`)
 }
 if (missing.length > 0) {
   console.error('ORYH Remote generation produced incomplete descriptors:')

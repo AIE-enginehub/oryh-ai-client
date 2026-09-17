@@ -87,10 +87,7 @@ export interface OryhList<Value> {
 type JsonRecord = Record<string, unknown>
 
 function fail(label: string): never {
-  throw new OryhClientError(
-    `ORYH returned an invalid ${label} response.`,
-    'invalid-response',
-  )
+  throw new OryhClientError(`ORYH returned an invalid ${label} response.`, 'invalid-response')
 }
 
 function record(value: unknown, label: string): JsonRecord {
@@ -137,7 +134,13 @@ export function decodeIdentity(value: unknown): OryhIdentity {
     name: optionalString(tenantData.name, 'auth/me tenant name'),
     environmentId: optionalString(data.environment_id, 'auth/me environment id'),
   }
-  return { user, tenant, permissions: Array.isArray(data.permissions) ? data.permissions.filter((p):p is string=>typeof p==='string') : [] }
+  return {
+    user,
+    tenant,
+    permissions: Array.isArray(data.permissions)
+      ? data.permissions.filter((p): p is string => typeof p === 'string')
+      : [],
+  }
 }
 
 function decodeMeta(value: unknown): OryhListMeta {
@@ -150,11 +153,7 @@ function decodeMeta(value: unknown): OryhListMeta {
   }
 }
 
-function decodeList<Value>(
-  value: unknown,
-  label: string,
-  item: (value: unknown) => Value,
-): OryhList<Value> {
+function decodeList<Value>(value: unknown, label: string, item: (value: unknown) => Value): OryhList<Value> {
   const envelope = record(value, `${label} envelope`)
   if (!Array.isArray(envelope.data)) fail(`${label} data`)
   return {
@@ -202,18 +201,19 @@ export function decodeTodos(value: unknown): OryhList<OryhTodo> {
   return decodeList(value, 'todos', item => {
     const todo = record(item, 'todo')
     const rawTarget = todo.target
-    const target = rawTarget === undefined || rawTarget === null
-      ? null
-      : (() => {
-          const target = record(rawTarget, 'todo target')
-          return {
-            // ORYH's target summary carries display context; the todo owns the reference.
-            entityType: string(target.entity_type ?? todo.entity_type, 'todo target entity type'),
-            entityId: string(target.entity_id ?? todo.entity_id, 'todo target entity id'),
-            title: optionalString(target.title, 'todo target title'),
-            deleted: optionalBoolean(target.deleted, 'todo target deleted'),
-          }
-        })()
+    const target =
+      rawTarget === undefined || rawTarget === null
+        ? null
+        : (() => {
+            const target = record(rawTarget, 'todo target')
+            return {
+              // ORYH's target summary carries display context; the todo owns the reference.
+              entityType: string(target.entity_type ?? todo.entity_type, 'todo target entity type'),
+              entityId: string(target.entity_id ?? todo.entity_id, 'todo target entity id'),
+              title: optionalString(target.title, 'todo target title'),
+              deleted: optionalBoolean(target.deleted, 'todo target deleted'),
+            }
+          })()
     return {
       id: string(todo.id, 'todo id'),
       employeeId: string(todo.employee_id, 'todo employee id'),

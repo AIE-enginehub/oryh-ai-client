@@ -28,7 +28,10 @@ export class ListParameters {
    * @param http - transport that can fetch the deployment's schema.
    * @param ttlMs - how long one schema serves; it only changes when ORYH is redeployed.
    */
-  constructor(private readonly http: Pick<OryhHttpClient, 'schema'>, private readonly ttlMs = 10 * 60_000) {}
+  constructor(
+    private readonly http: Pick<OryhHttpClient, 'schema'>,
+    private readonly ttlMs = 10 * 60_000,
+  ) {}
 
   /**
    * The filterable query parameters of one list endpoint.

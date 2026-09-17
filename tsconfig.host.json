@@ -5,7 +5,28 @@
       "path": "packages/core/tsconfig.json"
     },
     {
-      "path": "packages/dsh-host/tsconfig.json"
+      "path": "packages/host-connection/tsconfig.json"
+    },
+    {
+      "path": "packages/host-pane/tsconfig.json"
+    },
+    {
+      "path": "packages/host-todos/tsconfig.json"
+    },
+    {
+      "path": "packages/host-timesheets/tsconfig.json"
+    },
+    {
+      "path": "packages/host-expenses/tsconfig.json"
+    },
+    {
+      "path": "packages/host-projects/tsconfig.json"
+    },
+    {
+      "path": "packages/host-records/tsconfig.json"
+    },
+    {
+      "path": "packages/host-agent/tsconfig.json"
     }
   ],
   "extends": "./tsconfig.base.json",
@@ -17,14 +38,56 @@
       "@oryh/ai-client-core": [
         "./packages/core/src/index.ts"
       ],
-      "@oryh/dsh-host": [
-        "./packages/dsh-host/src/index.ts"
-      ],
       "@oryh/ai-client-core/types": [
         "./packages/core/src/types.ts"
       ],
-      "@oryh/dsh-host/types": [
-        "./packages/dsh-host/src/types.ts"
+      "@oryh/dsh-connection": [
+        "./packages/host-connection/src/index.ts"
+      ],
+      "@oryh/dsh-connection/types": [
+        "./packages/host-connection/src/types.ts"
+      ],
+      "@oryh/dsh-pane": [
+        "./packages/host-pane/src/index.ts"
+      ],
+      "@oryh/dsh-pane/types": [
+        "./packages/host-pane/src/types.ts"
+      ],
+      "@oryh/dsh-pane/testing": [
+        "./packages/host-pane/src/testing.ts"
+      ],
+      "@oryh/dsh-todos": [
+        "./packages/host-todos/src/index.ts"
+      ],
+      "@oryh/dsh-todos/types": [
+        "./packages/host-todos/src/types.ts"
+      ],
+      "@oryh/dsh-timesheets": [
+        "./packages/host-timesheets/src/index.ts"
+      ],
+      "@oryh/dsh-timesheets/types": [
+        "./packages/host-timesheets/src/types.ts"
+      ],
+      "@oryh/dsh-expenses": [
+        "./packages/host-expenses/src/index.ts"
+      ],
+      "@oryh/dsh-expenses/types": [
+        "./packages/host-expenses/src/types.ts"
+      ],
+      "@oryh/dsh-projects": [
+        "./packages/host-projects/src/index.ts"
+      ],
+      "@oryh/dsh-projects/types": [
+        "./packages/host-projects/src/types.ts"
+      ],
+      "@oryh/dsh-records": [
+        "./packages/host-records/src/index.ts"
+      ],
+      "@oryh/dsh-records/types": [
+        "./packages/host-records/src/types.ts"
+      ],
+      "@oryh/dsh-agent": [
+        "./packages/host-agent/src/index.ts"
       ]
     },
     "types": [

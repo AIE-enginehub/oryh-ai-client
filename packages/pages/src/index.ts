@@ -51,14 +51,15 @@ export interface PageDefinition {
  */
 export function hasPermission(identity: PageIdentity, verb: string): boolean {
   const granted = identity.permissions ?? []
-  return granted.includes(verb)
-    || granted.includes(`${verb}:*`)
+  return (
+    granted.includes(verb) ||
+    granted.includes(`${verb}:*`) ||
     // Shipment handling is part of managing inventory.
-    || (verb === 'shipment.manage' && hasPermission(identity, 'inventory.manage'))
+    (verb === 'shipment.manage' && hasPermission(identity, 'inventory.manage'))
+  )
 }
 
-const any = (identity: PageIdentity, ...verbs: string[]): boolean =>
-  verbs.some(verb => hasPermission(identity, verb))
+const any = (identity: PageIdentity, ...verbs: string[]): boolean => verbs.some(verb => hasPermission(identity, verb))
 const employee = (identity: PageIdentity): boolean => Boolean(identity.user.employeeId)
 
 /**
@@ -70,17 +71,20 @@ const employee = (identity: PageIdentity): boolean => Boolean(identity.user.empl
 export const PAGES: readonly PageDefinition[] = [
   { id: 'my-open-todos', title: '我的待办', access: employee },
   {
-    id: 'my-expense-claims', title: '费用申请',
+    id: 'my-expense-claims',
+    title: '费用申请',
     access: i => employee(i) && any(i, 'expense.submit_own', 'expense.advance', 'approval.record'),
   },
   {
-    id: 'timesheets', title: '我的工时',
+    id: 'timesheets',
+    title: '我的工时',
     access: i => employee(i) && any(i, 'timesheet.submit_own', 'timesheet.advance', 'approval.record'),
   },
   { id: 'timesheet-approvals', title: '工时审批', access: i => employee(i) && any(i, 'approval.record') },
   { id: 'list-projects', title: '项目', access: i => any(i, 'master_data.manage', 'users.manage') },
   {
-    id: 'sales-orders', title: '销售订单',
+    id: 'sales-orders',
+    title: '销售订单',
     access: i => any(i, 'order.submit_own', 'order.advance', 'approval.record'),
   },
   { id: 'inventory-items', title: '库存余额', access: i => any(i, 'inventory.manage') },

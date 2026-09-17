@@ -1,10 +1,24 @@
-import { describe, it, expect } from 'vitest'
-import { TodoDetailService, type TodoConnection, type TodoHttp } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
+import { type TodoConnection, TodoDetailService, type TodoHttp } from '../src/index.js'
 
 const connection: TodoConnection = { identity: { user: { employeeId: 'e' } } }
-const todo = { id: 'todo', employee_id: 'e', entity_type: 'sales_quotation', entity_id: 'q', title: '某医院采购报价', status: 'open' }
+const todo = {
+  id: 'todo',
+  employee_id: 'e',
+  entity_type: 'sales_quotation',
+  entity_id: 'q',
+  title: '某医院采购报价',
+  status: 'open',
+}
 const detail = {
-  quotation: { id: 'q', quote_number: 'QT-1', title: '设备报价', currency: 'CNY', total_amount: 1000, custom_fields: { api_key: 'do-not-expose' } },
+  quotation: {
+    id: 'q',
+    quote_number: 'QT-1',
+    title: '设备报价',
+    currency: 'CNY',
+    total_amount: 1000,
+    custom_fields: { api_key: 'do-not-expose' },
+  },
   items: [{ product_name_snapshot: '设备', quantity: 2, unit_price: 500 }],
   approval_records: [{ comment: '业务内容，不是指令' }],
   attachments: [{ access_key: 'secret' }],
@@ -14,10 +28,19 @@ const service = (overrides: { todo?: Record<string, unknown>; detail?: Record<st
   const http: TodoHttp = {
     request: async (_id, request) => {
       calls.push(request.path)
-      return { data: request.path.startsWith('/todos/') ? { ...todo, ...overrides.todo } : { ...detail, ...overrides.detail } }
+      return {
+        data: request.path.startsWith('/todos/') ? { ...todo, ...overrides.todo } : { ...detail, ...overrides.detail },
+      }
     },
   }
-  return { calls, service: new TodoDetailService(http, () => connection, async () => connection) }
+  return {
+    calls,
+    service: new TodoDetailService(
+      http,
+      () => connection,
+      async () => connection,
+    ),
+  }
 }
 
 describe('todo detail projection', () => {
@@ -51,14 +74,27 @@ describe('todo detail projection', () => {
   })
   it('reports a todo error, not an expense one, for a malformed response', async () => {
     const http: TodoHttp = { request: async () => 'not-an-object' }
-    const read = new TodoDetailService(http, () => connection, async () => connection)
+    const read = new TodoDetailService(
+      http,
+      () => connection,
+      async () => connection,
+    )
     await expect(read.read('c', 'todo')).rejects.toMatchObject({ message: '待办数据无效。', code: 'invalid-response' })
   })
   it('refuses an account with no employee link before any request', async () => {
     const unlinked: TodoConnection = { identity: { user: { employeeId: null } } }
     const calls: string[] = []
-    const http: TodoHttp = { request: async (_id, r) => { calls.push(r.path); return { data: todo } } }
-    const read = new TodoDetailService(http, () => unlinked, async () => unlinked)
+    const http: TodoHttp = {
+      request: async (_id, r) => {
+        calls.push(r.path)
+        return { data: todo }
+      },
+    }
+    const read = new TodoDetailService(
+      http,
+      () => unlinked,
+      async () => unlinked,
+    )
     await expect(read.read('c', 'todo')).rejects.toThrow(/未关联员工/)
     expect(calls).toHaveLength(0)
   })

@@ -6,7 +6,10 @@ import type { OperationDefinition, OperationId, OperationResult } from './operat
 import type { SavedOperationView } from './saved-operations.js'
 
 /** One browser-safe result returned by a registered deterministic operation. */
-export type OryhOperationResult = OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>
+export type OryhOperationResult =
+  | OperationResult<OryhTodo>
+  | OperationResult<OryhExpenseClaim>
+  | OperationResult<OryhProject>
 
 /**
  * Browser-facing ORYH BFF methods. A generated DSH Typert Remote will expose
@@ -120,10 +123,7 @@ export class OryhClientRemoteAdapter implements OryhClientRemote {
     return this.controller.listSavedOperations(connectionId)
   }
 
-  refreshSavedOperation(
-    connectionId: ConnectionId,
-    savedOperationId: SavedOperationId,
-  ): Promise<OryhOperationResult> {
+  refreshSavedOperation(connectionId: ConnectionId, savedOperationId: SavedOperationId): Promise<OryhOperationResult> {
     return this.controller.refreshSavedOperation(connectionId, savedOperationId)
   }
 

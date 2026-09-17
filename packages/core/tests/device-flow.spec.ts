@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  ConnectionRegistry,
-  DeviceFlowConnector,
-  MemoryCredentialVault,
-} from '../src/index.js'
+import { ConnectionRegistry, DeviceFlowConnector, MemoryCredentialVault } from '../src/index.js'
 import { jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 describe('DeviceFlowConnector', () => {

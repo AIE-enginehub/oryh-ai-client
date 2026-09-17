@@ -1,13 +1,13 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
-  connectionId,
-  operationResultId,
-  savedOperationId,
   type ConnectionId,
+  connectionId,
   type OperationResultId,
+  operationResultId,
   type SavedOperationId,
+  savedOperationId,
 } from './brand.js'
 import { OryhClientError } from './errors.js'
 import type { OperationId } from './operations.js'
@@ -149,7 +149,10 @@ export class SavedOperationRegistry {
     for (const operation of operations) {
       validateView(operation)
       if (restored.has(operation.id)) {
-        throw new OryhClientError('ORYH saved-operation metadata contains duplicate operation IDs.', 'connection-store-failed')
+        throw new OryhClientError(
+          'ORYH saved-operation metadata contains duplicate operation IDs.',
+          'connection-store-failed',
+        )
       }
       restored.set(operation.id, operation)
     }
@@ -173,10 +176,7 @@ export class SavedOperationRegistry {
       throw new OryhClientError('The saved ORYH operation no longer exists.', 'operation-not-found')
     }
     if (saved.connectionId !== connectionId) {
-      throw new OryhClientError(
-        'A saved ORYH operation cannot be used across connections.',
-        'cross-connection-result',
-      )
+      throw new OryhClientError('A saved ORYH operation cannot be used across connections.', 'cross-connection-result')
     }
     return saved
   }
@@ -199,7 +199,10 @@ function decodeStore(value: unknown): readonly SavedOperationView[] {
   return record.operations.map(item => {
     const operation = decodeView(item)
     if (seen.has(operation.id)) {
-      throw new OryhClientError('ORYH saved-operation metadata contains duplicate operation IDs.', 'connection-store-failed')
+      throw new OryhClientError(
+        'ORYH saved-operation metadata contains duplicate operation IDs.',
+        'connection-store-failed',
+      )
     }
     seen.add(operation.id)
     return operation
@@ -212,10 +215,12 @@ function decodeView(value: unknown): SavedOperationView {
   const rawConnectionId = string(record.connectionId)
   const rawSourceResultId = string(record.sourceResultId)
   const rawOperationId = string(record.operationId)
-  if (!/^saved-operation-[1-9][0-9]*$/u.test(id)
-    || !/^oryh-[1-9][0-9]*$/u.test(rawConnectionId)
-    || !/^result-[1-9][0-9]*$/u.test(rawSourceResultId)
-    || (rawOperationId !== 'my-open-todos' && rawOperationId !== 'my-expense-claims' && rawOperationId !== 'list-projects')) {
+  if (
+    !/^saved-operation-[1-9][0-9]*$/u.test(id) ||
+    !/^oryh-[1-9][0-9]*$/u.test(rawConnectionId) ||
+    !/^result-[1-9][0-9]*$/u.test(rawSourceResultId) ||
+    (rawOperationId !== 'my-open-todos' && rawOperationId !== 'my-expense-claims' && rawOperationId !== 'list-projects')
+  ) {
     throw new OryhClientError('ORYH saved-operation metadata is invalid.', 'connection-store-failed')
   }
   const createdAt = string(record.createdAt)

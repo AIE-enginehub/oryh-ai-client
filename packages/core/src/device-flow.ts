@@ -1,10 +1,10 @@
 import type { ConnectionRegistry, ConnectionSummary } from './connections.js'
+import { normalizeOrigin } from './connections.js'
 import { decodeIdentity } from './contracts.js'
 import type { CredentialPair, CredentialVault } from './credentials.js'
 import { OryhClientError } from './errors.js'
 import type { Fetcher } from './http.js'
 import { OryhHttpClient } from './http.js'
-import { normalizeOrigin } from './connections.js'
 
 /** Browser approval instructions safe to render in a local client UI. */
 export interface DeviceAuthorizationPrompt {

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  ConnectionRegistry,
-  MemoryCredentialVault,
-  OryhHttpClient,
-} from '../src/index.js'
+import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient } from '../src/index.js'
 import { header, jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 function identity() {
@@ -64,7 +60,7 @@ describe('OryhHttpClient', () => {
     })
   })
 
-  it('addresses ORYH\'s MCP endpoint from the deployment root with the same credential', async () => {
+  it("addresses ORYH's MCP endpoint from the deployment root with the same credential", async () => {
     const connections = new ConnectionRegistry()
     const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
     const credentials = new MemoryCredentialVault()
@@ -72,7 +68,12 @@ describe('OryhHttpClient', () => {
     const fetcher = new ScriptedFetcher([jsonResponse(200, { jsonrpc: '2.0', id: 1, result: {} })])
     const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
 
-    await client.request(connection.id, { path: '/mcp', root: true, method: 'POST', body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })
+    await client.request(connection.id, {
+      path: '/mcp',
+      root: true,
+      method: 'POST',
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    })
     expect(fetcher.calls.map(call => call.input)).toEqual(['https://oryh.example/mcp'])
     expect(header(fetcher.calls[0]?.init, 'X-API-Key')).toBe('access-key')
   })
@@ -121,7 +122,9 @@ describe('OryhHttpClient', () => {
     })
     let initialRequests = 0
     let releaseInitialRequests: (() => void) | undefined
-    const initialRequestsReady = new Promise<void>(resolve => { releaseInitialRequests = resolve })
+    const initialRequestsReady = new Promise<void>(resolve => {
+      releaseInitialRequests = resolve
+    })
     let refreshCalls = 0
     const fetcher = async (input: string, init?: RequestInit) => {
       if (input.endsWith('/projects')) {
@@ -144,10 +147,12 @@ describe('OryhHttpClient', () => {
     }
     const client = new OryhHttpClient(connections, credentials, fetcher)
 
-    await expect(Promise.all([
-      client.request(connection.id, { path: '/projects' }),
-      client.request(connection.id, { path: '/projects' }),
-    ])).resolves.toEqual([
+    await expect(
+      Promise.all([
+        client.request(connection.id, { path: '/projects' }),
+        client.request(connection.id, { path: '/projects' }),
+      ]),
+    ).resolves.toEqual([
       { data: [], meta: { total: 0 } },
       { data: [], meta: { total: 0 } },
     ])
@@ -156,20 +161,27 @@ describe('OryhHttpClient', () => {
 })
 
 describe('safe timesheet conflict explanations', () => {
-  const id='88809fbe-02a1-4327-97fb-d2550bf75467'
-  const existing=`timesheet header ${id} already covers period 2026-08-31..2026-09-04 for employee ${id}`
+  const id = '88809fbe-02a1-4327-97fb-d2550bf75467'
+  const existing = `timesheet header ${id} already covers period 2026-08-31..2026-09-04 for employee ${id}`
   it.each([
     [existing, '/timesheet-headers?validate_only=true', '已有工时单'],
-    [`deleted timesheet header ${id} still holds period 2026-08-31..2026-09-04 for employee ${id}; restore it instead of recreating`, '/timesheet-headers', '恢复原单据'],
-    [existing+' secret-access-key', '/timesheet-headers', 'status 409'],
+    [
+      `deleted timesheet header ${id} still holds period 2026-08-31..2026-09-04 for employee ${id}; restore it instead of recreating`,
+      '/timesheet-headers',
+      '恢复原单据',
+    ],
+    [existing + ' secret-access-key', '/timesheet-headers', 'status 409'],
     [existing, '/projects', 'status 409'],
     ['secret-access-key', '/timesheet-headers', 'status 409'],
-  ])('maps only known conflict shapes without echoing response data', async(detail,path,message)=>{
-    const connections=new ConnectionRegistry(), credentials=new MemoryCredentialVault()
-    const c=connections.add({origin:'https://oryh.example',identity:identity()})
-    await credentials.write(c.id,{accessKey:'secret-access-key',refreshToken:'secret-refresh',expiresAt:null})
-    const client=new OryhHttpClient(connections,credentials,async()=>jsonResponse(409,{detail}))
-    const error=await client.request(c.id,{path:path as `/${string}`,method:'POST',retryExpired:false}).catch(e=>e)
+  ])('maps only known conflict shapes without echoing response data', async (detail, path, message) => {
+    const connections = new ConnectionRegistry(),
+      credentials = new MemoryCredentialVault()
+    const c = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    await credentials.write(c.id, { accessKey: 'secret-access-key', refreshToken: 'secret-refresh', expiresAt: null })
+    const client = new OryhHttpClient(connections, credentials, async () => jsonResponse(409, { detail }))
+    const error = await client
+      .request(c.id, { path: path as `/${string}`, method: 'POST', retryExpired: false })
+      .catch(e => e)
     expect(error.message).toContain(message)
     expect(error.message).not.toContain('secret-access-key')
     expect(error.message).not.toContain(id)

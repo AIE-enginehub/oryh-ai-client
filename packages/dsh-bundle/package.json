@@ -15,9 +15,21 @@
     }
   },
   "dependencies": {
-    "@oryh/dsh-host": "workspace:*",
-    "@oryh/dsh-client": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-directory-picker-browse": "link:../../../deepseek-harness/packages/client/ui-directory-picker-browse",
     "@deepseek-ai/dsh-host-directory-picker-browse": "link:../../../deepseek-harness/packages/host/directory-picker-browse",
-    "@deepseek-ai/dsh-client-ui-directory-picker-browse": "link:../../../deepseek-harness/packages/client/ui-directory-picker-browse"
+    "@oryh/dsh-agent": "workspace:*",
+    "@oryh/dsh-client-expenses": "workspace:*",
+    "@oryh/dsh-client-frame": "workspace:*",
+    "@oryh/dsh-client-projects": "workspace:*",
+    "@oryh/dsh-client-records": "workspace:*",
+    "@oryh/dsh-client-timesheets": "workspace:*",
+    "@oryh/dsh-client-todos": "workspace:*",
+    "@oryh/dsh-connection": "workspace:*",
+    "@oryh/dsh-expenses": "workspace:*",
+    "@oryh/dsh-pane": "workspace:*",
+    "@oryh/dsh-projects": "workspace:*",
+    "@oryh/dsh-records": "workspace:*",
+    "@oryh/dsh-timesheets": "workspace:*",
+    "@oryh/dsh-todos": "workspace:*"
   }
 }

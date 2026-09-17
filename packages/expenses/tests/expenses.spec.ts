@@ -1,9 +1,20 @@
-import { describe, it, expect } from 'vitest'
-import { parseExpenseFields, MemoryExpenseStore, type ExpenseFields, type ExpenseRecord } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
+import { type ExpenseFields, type ExpenseRecord, MemoryExpenseStore, parseExpenseFields } from '../src/index.js'
 
 const fields: ExpenseFields = {
-  title: '差旅报销', claimDate: '2026-09-08', currency: 'CNY',
-  items: [{ expenseDate: '2026-09-07', category: 'travel', amount: '120.50', merchant: '机场大巴', invoiceNumber: 'INV-1', notes: '' }],
+  title: '差旅报销',
+  claimDate: '2026-09-08',
+  currency: 'CNY',
+  items: [
+    {
+      expenseDate: '2026-09-07',
+      category: 'travel',
+      amount: '120.50',
+      merchant: '机场大巴',
+      invoiceNumber: 'INV-1',
+      notes: '',
+    },
+  ],
 }
 
 describe('expense field parsing', () => {
@@ -21,7 +32,9 @@ describe('expense field parsing', () => {
     expect(() => parseExpenseFields({ ...fields, currency: 'CNYX' })).toThrow()
     expect(() => parseExpenseFields({ ...fields, claimDate: '2026-02-30' })).toThrow()
     expect(() => parseExpenseFields({ ...fields, items: [] })).toThrow()
-    expect(() => parseExpenseFields({ ...fields, items: Array.from({ length: 101 }, () => fields.items[0]!) })).toThrow()
+    expect(() =>
+      parseExpenseFields({ ...fields, items: Array.from({ length: 101 }, () => fields.items[0]!) }),
+    ).toThrow()
   })
   it('allows blank amounts and dates only while the draft is incomplete', () => {
     const draft = { ...fields, claimDate: '', items: [{ ...fields.items[0]!, amount: '', expenseDate: '' }] }
@@ -29,9 +42,17 @@ describe('expense field parsing', () => {
     expect(() => parseExpenseFields(draft)).toThrow()
   })
   it('requires a complete attachment receipt when one is present', () => {
-    const withAttachment = { ...fields, items: [{ ...fields.items[0]!, attachment: { id: 'a', filename: 'r.pdf', sha256: 'x' } }] }
+    const withAttachment = {
+      ...fields,
+      items: [{ ...fields.items[0]!, attachment: { id: 'a', filename: 'r.pdf', sha256: 'x' } }],
+    }
     expect(parseExpenseFields(withAttachment).items[0]!.attachment).toEqual({ id: 'a', filename: 'r.pdf', sha256: 'x' })
-    expect(() => parseExpenseFields({ ...fields, items: [{ ...fields.items[0]!, attachment: { id: '', filename: 'r.pdf', sha256: 'x' } }] })).toThrow()
+    expect(() =>
+      parseExpenseFields({
+        ...fields,
+        items: [{ ...fields.items[0]!, attachment: { id: '', filename: 'r.pdf', sha256: 'x' } }],
+      }),
+    ).toThrow()
   })
   it('reports an expense conflict for a malformed payload', () => {
     expect(() => parseExpenseFields('not-an-object')).toThrow(expect.objectContaining({ code: 'expense-conflict' }))
@@ -41,7 +62,14 @@ describe('expense field parsing', () => {
 describe('draft store', () => {
   it('permits one writer per revision', async () => {
     const store = new MemoryExpenseStore()
-    const record: ExpenseRecord = { id: 'draft', revision: 1, scope: 's', fields, state: 'editing', updatedAt: '2026-09-08T00:00:00.000Z' }
+    const record: ExpenseRecord = {
+      id: 'draft',
+      revision: 1,
+      scope: 's',
+      fields,
+      state: 'editing',
+      updatedAt: '2026-09-08T00:00:00.000Z',
+    }
     await store.append(record, 0)
     await expect(store.append({ ...record, revision: 2 }, 0)).rejects.toThrow(/草稿已改变/)
     await store.append({ ...record, revision: 2 }, 1)

@@ -1,7 +1,7 @@
 import {
-  deviceAuthorizationId,
   type ConnectionId,
   type DeviceAuthorizationId,
+  deviceAuthorizationId,
   type OperationResultId,
   type SavedOperationId,
 } from './brand.js'
@@ -43,7 +43,10 @@ export class OryhClientController {
   readonly #ready: Promise<void>
   #nextAuthorizationId = 1
 
-  constructor(private readonly host: OryhClientHost, options: OryhClientControllerOptions = {}) {
+  constructor(
+    private readonly host: OryhClientHost,
+    options: OryhClientControllerOptions = {},
+  ) {
     this.#savedOperationStore = options.savedOperationStore
     this.#ready = this.restoreSavedOperations()
   }
@@ -93,18 +96,9 @@ export class OryhClientController {
   }
 
   /** Execute one registered read operation under exactly one existing connection. */
-  execute(
-    connectionId: ConnectionId,
-    operationId: 'my-open-todos',
-  ): Promise<OperationResult<OryhTodo>>
-  execute(
-    connectionId: ConnectionId,
-    operationId: 'list-projects',
-  ): Promise<OperationResult<OryhProject>>
-  execute(
-    connectionId: ConnectionId,
-    operationId: 'my-expense-claims',
-  ): Promise<OperationResult<OryhExpenseClaim>>
+  execute(connectionId: ConnectionId, operationId: 'my-open-todos'): Promise<OperationResult<OryhTodo>>
+  execute(connectionId: ConnectionId, operationId: 'list-projects'): Promise<OperationResult<OryhProject>>
+  execute(connectionId: ConnectionId, operationId: 'my-expense-claims'): Promise<OperationResult<OryhExpenseClaim>>
   execute(
     connectionId: ConnectionId,
     operationId: OperationId,

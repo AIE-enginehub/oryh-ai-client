@@ -1,10 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import { connectionId } from './brand.js'
-import { normalizeOrigin, type ConnectionSummary } from './connections.js'
-import { OryhClientError } from './errors.js'
+import { type ConnectionSummary, normalizeOrigin } from './connections.js'
 import type { OryhIdentity } from './contracts.js'
+import { OryhClientError } from './errors.js'
 
 /** Non-secret local persistence for ORYH connection summaries. */
 export interface ConnectionStore {
@@ -93,10 +93,13 @@ function decodeStore(value: unknown): readonly ConnectionSummary[] {
     throw new OryhClientError('ORYH connection metadata is invalid.', 'connection-store-failed')
   }
   const seen = new Set<string>()
-  return record.connections.map((item) => {
+  return record.connections.map(item => {
     const connection = decodeConnection(item)
     if (seen.has(connection.id)) {
-      throw new OryhClientError('ORYH connection metadata contains duplicate connection IDs.', 'connection-store-failed')
+      throw new OryhClientError(
+        'ORYH connection metadata contains duplicate connection IDs.',
+        'connection-store-failed',
+      )
     }
     seen.add(connection.id)
     return connection
@@ -111,7 +114,10 @@ function decodeConnection(value: unknown): ConnectionSummary {
   }
   const connectedAt = string(record.connectedAt)
   if (!Number.isFinite(Date.parse(connectedAt))) {
-    throw new OryhClientError('ORYH connection metadata contains an invalid connection time.', 'connection-store-failed')
+    throw new OryhClientError(
+      'ORYH connection metadata contains an invalid connection time.',
+      'connection-store-failed',
+    )
   }
   return {
     id: connectionId(id),

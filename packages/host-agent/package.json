@@ -1,0 +1,48 @@
+{
+  "name": "@oryh/dsh-agent",
+  "version": "0.1.0",
+  "description": "The ORYH business agent: the Chat session as a complete ORYH client \u2014 its rules, tool policy, ORYH's MCP tools, and the pane following what it reads and writes.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-agent": "link:../../../deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt",
+    "@oryh/ai-client-core": "workspace:*",
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/dsh-connection": "workspace:*",
+    "@oryh/dsh-pane": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-api-gateway": "link:../../../deepseek-harness/packages/api/gateway",
+    "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-typert-registry": "link:../../../deepseek-harness/packages/typert/registry",
+    "@oryh/ai-client-timesheets": "workspace:*",
+    "@oryh/dsh-expenses": "workspace:*",
+    "@oryh/dsh-pane": "workspace:*",
+    "@oryh/dsh-projects": "workspace:*",
+    "@oryh/dsh-records": "workspace:*",
+    "@oryh/dsh-timesheets": "workspace:*",
+    "@oryh/dsh-todos": "workspace:*",
+    "vitest": "^3.2.4"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

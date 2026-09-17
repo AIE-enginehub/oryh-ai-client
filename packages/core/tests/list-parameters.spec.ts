@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ListParameters, parameters } from '../src/list-parameters.js'
 
 /** Trimmed from the real `/openapi.json`: FastAPI spells an optional `str | None` as `anyOf`. */

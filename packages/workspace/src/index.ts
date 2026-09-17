@@ -42,10 +42,7 @@ export class OryhWorkspace {
   async load(): Promise<OryhWorkspaceSnapshot> {
     const previousConnection = this.#activeConnectionId
     const generation = this.resetSelection()
-    const [connections, operations] = await Promise.all([
-      this.remote.listConnections(),
-      this.remote.listOperations(),
-    ])
+    const [connections, operations] = await Promise.all([this.remote.listConnections(), this.remote.listOperations()])
     this.assertGeneration(generation)
     this.#connections = [...connections]
     this.#operations = [...operations]
@@ -188,7 +185,11 @@ export class OryhWorkspace {
   private async activateConnection(connectionId: ConnectionId, generation: number): Promise<void> {
     const verified = await this.remote.verifyConnection(connectionId)
     this.assertGeneration(generation)
-    if (verified.id !== connectionId) throw new OryhWorkspaceError('The verified connection does not match the selected enterprise.', 'cross-connection-result')
+    if (verified.id !== connectionId)
+      throw new OryhWorkspaceError(
+        'The verified connection does not match the selected enterprise.',
+        'cross-connection-result',
+      )
     const savedOperations = await this.remote.listSavedOperations(connectionId)
     this.assertGeneration(generation)
     this.replaceConnection(verified)
@@ -218,13 +219,16 @@ export class OryhWorkspace {
 
   /** Replace only the selected connection's mutable identity projection after Host verification. */
   private replaceConnection(verified: ConnectionSummary): void {
-    this.#connections = this.#connections.map(connection => connection.id === verified.id ? verified : connection)
+    this.#connections = this.#connections.map(connection => (connection.id === verified.id ? verified : connection))
   }
 }
 
 /** UI-domain error emitted before any remote operation can target an ambiguous tenant. */
 export class OryhWorkspaceError extends Error {
-  constructor(message: string, readonly code: OryhWorkspaceErrorCode) {
+  constructor(
+    message: string,
+    readonly code: OryhWorkspaceErrorCode,
+  ) {
     super(message)
     this.name = 'OryhWorkspaceError'
   }

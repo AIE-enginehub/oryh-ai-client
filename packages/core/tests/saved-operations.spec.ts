@@ -3,10 +3,10 @@ import {
   connectionId,
   MemoryCredentialVault,
   MemorySavedOperationStore,
-  operationResultId,
   OryhClientController,
   OryhClientError,
   OryhClientHost,
+  operationResultId,
   SavedOperationRegistry,
 } from '../src/index.js'
 import { jsonResponse, ScriptedFetcher } from './fixtures.js'
@@ -16,21 +16,37 @@ describe('saved deterministic operations', () => {
     const fetcher = new ScriptedFetcher([
       jsonResponse(201, {
         data: {
-          device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+          device_code: 'private-device-code',
+          user_code: 'ABCD-EFGH',
           verification_uri: 'https://oryh.example/web/device',
           verification_uri_complete: 'https://oryh.example/web/device?code=ABCD-EFGH',
-          expires_in: 900, interval: 5,
-        }, meta: {},
-      }),
-      jsonResponse(200, {
-        data: { status: 'approved', api_key: 'private-access-key', refresh_token: 'private-refresh-token', expires_at: null },
+          expires_in: 900,
+          interval: 5,
+        },
         meta: {},
       }),
       jsonResponse(200, {
         data: {
-          id: 'user-1', email: 'member@example.com', name: null, role: 'member', employee_id: 'employee-1',
-          permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
-        }, meta: {},
+          status: 'approved',
+          api_key: 'private-access-key',
+          refresh_token: 'private-refresh-token',
+          expires_at: null,
+        },
+        meta: {},
+      }),
+      jsonResponse(200, {
+        data: {
+          id: 'user-1',
+          email: 'member@example.com',
+          name: null,
+          role: 'member',
+          employee_id: 'employee-1',
+          permissions: ['master_data.manage'],
+          tenant_id: 'tenant-1',
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
+          environment_id: null,
+        },
+        meta: {},
       }),
       jsonResponse(200, { data: [], meta: { total: 0 } }),
       jsonResponse(200, { data: [], meta: { total: 0 } }),
@@ -61,18 +77,26 @@ describe('saved deterministic operations', () => {
 
   it('validates labels and refuses saved views from another connection', () => {
     const registry = new SavedOperationRegistry()
-    expect(() => registry.save({
-      connectionId: connectionId('connection-1'),
-      operationId: 'list-projects',
-      resultId: operationResultId('result-1'),
-      label: ' ',
-    }, '2026-08-28T00:00:00Z')).toThrow(OryhClientError)
-    const saved = registry.save({
-      connectionId: connectionId('connection-1'),
-      operationId: 'list-projects',
-      resultId: operationResultId('result-1'),
-      label: '项目',
-    }, '2026-08-28T00:00:00Z')
+    expect(() =>
+      registry.save(
+        {
+          connectionId: connectionId('connection-1'),
+          operationId: 'list-projects',
+          resultId: operationResultId('result-1'),
+          label: ' ',
+        },
+        '2026-08-28T00:00:00Z',
+      ),
+    ).toThrow(OryhClientError)
+    const saved = registry.save(
+      {
+        connectionId: connectionId('connection-1'),
+        operationId: 'list-projects',
+        resultId: operationResultId('result-1'),
+        label: '项目',
+      },
+      '2026-08-28T00:00:00Z',
+    )
     let error: unknown
     try {
       registry.require(connectionId('connection-2'), saved.id)

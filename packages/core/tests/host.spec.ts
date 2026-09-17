@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  connectionId,
-  MemoryCredentialVault,
-  MemoryConnectionStore,
-  OryhClientHost,
-} from '../src/index.js'
+import { connectionId, MemoryConnectionStore, MemoryCredentialVault, OryhClientHost } from '../src/index.js'
 import { jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 describe('OryhClientHost', () => {
@@ -38,7 +33,8 @@ describe('OryhClientHost', () => {
           name: null,
           role: 'member',
           employee_id: 'employee-1',
-          permissions:['master_data.manage'], tenant_id: 'tenant-1',
+          permissions: ['master_data.manage'],
+          tenant_id: 'tenant-1',
           tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
           environment_id: null,
         },
@@ -59,38 +55,52 @@ describe('OryhClientHost', () => {
 
   it('restores only persisted connection metadata with a matching credential entry', async () => {
     const credentials = new MemoryCredentialVault()
-    const store = new MemoryConnectionStore([{
-      id: connectionId('oryh-1'),
-      origin: 'https://oryh.example',
-      identity: {
-        user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
-        tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+    const store = new MemoryConnectionStore([
+      {
+        id: connectionId('oryh-1'),
+        origin: 'https://oryh.example',
+        identity: {
+          user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+        },
+        connectedAt: '2026-08-28T00:00:00Z',
       },
-      connectedAt: '2026-08-28T00:00:00Z',
-    }])
+    ])
     await credentials.write(connectionId('oryh-1'), {
-      accessKey: 'restored-access-key', refreshToken: 'restored-refresh-token', expiresAt: null,
+      accessKey: 'restored-access-key',
+      refreshToken: 'restored-refresh-token',
+      expiresAt: null,
     })
-    const host = new OryhClientHost({ credentialVault: credentials, connectionStore: store, fetcher: async () => {
-      throw new Error('No network request expected while restoring')
-    } })
+    const host = new OryhClientHost({
+      credentialVault: credentials,
+      connectionStore: store,
+      fetcher: async () => {
+        throw new Error('No network request expected while restoring')
+      },
+    })
 
     await expect(host.connections()).resolves.toMatchObject([{ id: 'oryh-1', identity: { tenant: { slug: 'acme' } } }])
   })
 
   it('drops stale metadata whose matching credential has been removed from the keychain', async () => {
-    const store = new MemoryConnectionStore([{
-      id: connectionId('oryh-1'),
-      origin: 'https://oryh.example',
-      identity: {
-        user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
-        tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+    const store = new MemoryConnectionStore([
+      {
+        id: connectionId('oryh-1'),
+        origin: 'https://oryh.example',
+        identity: {
+          user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+        },
+        connectedAt: '2026-08-28T00:00:00Z',
       },
-      connectedAt: '2026-08-28T00:00:00Z',
-    }])
-    const host = new OryhClientHost({ credentialVault: new MemoryCredentialVault(), connectionStore: store, fetcher: async () => {
-      throw new Error('No network request expected while restoring')
-    } })
+    ])
+    const host = new OryhClientHost({
+      credentialVault: new MemoryCredentialVault(),
+      connectionStore: store,
+      fetcher: async () => {
+        throw new Error('No network request expected while restoring')
+      },
+    })
 
     await expect(host.connections()).resolves.toEqual([])
     await expect(store.load()).resolves.toEqual([])
@@ -100,23 +110,35 @@ describe('OryhClientHost', () => {
     const id = connectionId('oryh-1')
     const credentials = new MemoryCredentialVault()
     await credentials.write(id, {
-      accessKey: 'restored-access-key', refreshToken: 'restored-refresh-token', expiresAt: null,
+      accessKey: 'restored-access-key',
+      refreshToken: 'restored-refresh-token',
+      expiresAt: null,
     })
-    const store = new MemoryConnectionStore([{
-      id,
-      origin: 'https://oryh.example',
-      identity: {
-        user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
-        tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+    const store = new MemoryConnectionStore([
+      {
+        id,
+        origin: 'https://oryh.example',
+        identity: {
+          user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+        },
+        connectedAt: '2026-08-28T00:00:00Z',
       },
-      connectedAt: '2026-08-28T00:00:00Z',
-    }])
+    ])
     const fetcher = new ScriptedFetcher([
       jsonResponse(200, {
         data: {
-          id: 'user-1', email: 'member@example.com', name: 'Member', role: 'manager', employee_id: 'employee-1',
-          permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
-        }, meta: {},
+          id: 'user-1',
+          email: 'member@example.com',
+          name: 'Member',
+          role: 'manager',
+          employee_id: 'employee-1',
+          permissions: ['master_data.manage'],
+          tenant_id: 'tenant-1',
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
+          environment_id: null,
+        },
+        meta: {},
       }),
     ])
     const host = new OryhClientHost({ credentialVault: credentials, connectionStore: store, fetcher: fetcher.fetch })
@@ -130,23 +152,35 @@ describe('OryhClientHost', () => {
     const id = connectionId('oryh-1')
     const credentials = new MemoryCredentialVault()
     await credentials.write(id, {
-      accessKey: 'restored-access-key', refreshToken: 'restored-refresh-token', expiresAt: null,
+      accessKey: 'restored-access-key',
+      refreshToken: 'restored-refresh-token',
+      expiresAt: null,
     })
-    const store = new MemoryConnectionStore([{
-      id,
-      origin: 'https://oryh.example',
-      identity: {
-        user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
-        tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+    const store = new MemoryConnectionStore([
+      {
+        id,
+        origin: 'https://oryh.example',
+        identity: {
+          user: { id: 'user-1', email: 'member@example.com', name: 'Member', role: 'member', employeeId: 'employee-1' },
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+        },
+        connectedAt: '2026-08-28T00:00:00Z',
       },
-      connectedAt: '2026-08-28T00:00:00Z',
-    }])
+    ])
     const fetcher = new ScriptedFetcher([
       jsonResponse(200, {
         data: {
-          id: 'user-2', email: 'other@example.com', name: 'Other', role: 'member', employee_id: 'employee-2',
-          permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
-        }, meta: {},
+          id: 'user-2',
+          email: 'other@example.com',
+          name: 'Other',
+          role: 'member',
+          employee_id: 'employee-2',
+          permissions: ['master_data.manage'],
+          tenant_id: 'tenant-1',
+          tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
+          environment_id: null,
+        },
+        meta: {},
       }),
     ])
     const host = new OryhClientHost({ credentialVault: credentials, connectionStore: store, fetcher: fetcher.fetch })
@@ -159,20 +193,34 @@ function restoredHost(fetcher: import('../src/http.js').Fetcher) {
   const id = connectionId('oryh-1')
   const credentials = new MemoryCredentialVault()
   const identity = {
-    permissions:['master_data.manage'],
+    permissions: ['master_data.manage'],
     user: { id: 'user-1', email: 'member@example.com', name: null, role: 'member', employeeId: 'employee-1' },
     tenant: { id: 'tenant-1', slug: 'acme', name: null, environmentId: null },
   }
-  const store = new MemoryConnectionStore([{ id, origin: 'https://oryh.example', identity, connectedAt: '2026-08-28T00:00:00Z' }])
-  return { id, credentials, store, async create() {
-    await credentials.write(id, { accessKey: 'synthetic-key', refreshToken: 'synthetic-refresh', expiresAt: null })
-    return new OryhClientHost({ credentialVault: credentials, connectionStore: store, fetcher })
-  } }
+  const store = new MemoryConnectionStore([
+    { id, origin: 'https://oryh.example', identity, connectedAt: '2026-08-28T00:00:00Z' },
+  ])
+  return {
+    id,
+    credentials,
+    store,
+    async create() {
+      await credentials.write(id, { accessKey: 'synthetic-key', refreshToken: 'synthetic-refresh', expiresAt: null })
+      return new OryhClientHost({ credentialVault: credentials, connectionStore: store, fetcher })
+    },
+  }
 }
 
 const verifiedIdentity = {
-  data: { id: 'user-1', email: 'member@example.com', role: 'member', employee_id: 'employee-1',
-    permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { slug: 'acme' } },
+  data: {
+    id: 'user-1',
+    email: 'member@example.com',
+    role: 'member',
+    employee_id: 'employee-1',
+    permissions: ['master_data.manage'],
+    tenant_id: 'tenant-1',
+    tenant: { slug: 'acme' },
+  },
 }
 
 it('freezes a previously verified connection and clears results after identity verification fails', async () => {
@@ -187,20 +235,29 @@ it('freezes a previously verified connection and clears results after identity v
   const cached = await host.executeProjects(fixture.id)
   await expect(host.verifyConnection(fixture.id)).rejects.toMatchObject({ code: 'connection-identity-mismatch' })
   await expect(host.executeProjects(fixture.id)).rejects.toMatchObject({ code: 'connection-verification-required' })
-  await expect(host.reuseProjectResult(fixture.id, cached.id)).rejects.toMatchObject({ code: 'connection-verification-required' })
+  await expect(host.reuseProjectResult(fixture.id, cached.id)).rejects.toMatchObject({
+    code: 'connection-verification-required',
+  })
   expect(fetcher.calls).toHaveLength(3)
 })
 
 it('rejects a pending result after disconnect and leaves no reusable cached data', async () => {
-  let release: (value: ReturnType<typeof jsonResponse>) => void = () => { throw new Error('Request not started') }
+  let release: (value: ReturnType<typeof jsonResponse>) => void = () => {
+    throw new Error('Request not started')
+  }
   let started: () => void = () => {}
-  const pendingStarted = new Promise<void>(resolve => { started = resolve })
+  const pendingStarted = new Promise<void>(resolve => {
+    started = resolve
+  })
   let reads = 0
   const fixture = restoredHost(async input => {
     if (input.endsWith('/auth/me')) return jsonResponse(200, verifiedIdentity)
     reads += 1
     if (reads === 1) return jsonResponse(200, { data: [], meta: { total: 0 } })
-    return new Promise(resolve => { release = resolve; started() })
+    return new Promise(resolve => {
+      release = resolve
+      started()
+    })
   })
   const host = await fixture.create()
   await host.verifyConnection(fixture.id)
@@ -217,12 +274,20 @@ it('rejects a pending result after disconnect and leaves no reusable cached data
 })
 
 it('does not restore credentials when a token rotation finishes during disconnect', async () => {
-  let release: (value: ReturnType<typeof jsonResponse>) => void = () => { throw new Error('Refresh not started') }
+  let release: (value: ReturnType<typeof jsonResponse>) => void = () => {
+    throw new Error('Refresh not started')
+  }
   let started: () => void = () => {}
-  const pendingStarted = new Promise<void>(resolve => { started = resolve })
+  const pendingStarted = new Promise<void>(resolve => {
+    started = resolve
+  })
   const fixture = restoredHost(async input => {
     if (input.endsWith('/auth/me')) return jsonResponse(200, verifiedIdentity)
-    if (input.endsWith('/auth/token/refresh')) return new Promise(resolve => { release = resolve; started() })
+    if (input.endsWith('/auth/token/refresh'))
+      return new Promise(resolve => {
+        release = resolve
+        started()
+      })
     return jsonResponse(401, { detail: 'API key expired' })
   })
   const host = await fixture.create()

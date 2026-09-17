@@ -1,7 +1,7 @@
 import type { ConnectionId } from './brand.js'
+import type { ConnectionRegistry } from './connections.js'
 import type { CredentialPair, CredentialVault } from './credentials.js'
 import { OryhClientError } from './errors.js'
-import type { ConnectionRegistry } from './connections.js'
 import type { OryhOperation } from './server-operation.js'
 
 /** A minimal fetch response seam, small enough to replace in tests or DSH Host adapters. */
@@ -139,7 +139,8 @@ export class OryhHttpClient {
     const firstBody = first.status === 204 ? {} : await first.json()
     this.assertOpen(connectionId)
     if (first.ok) return firstBody
-    if (!expiredKey(first, firstBody) || request.retryExpired === false) throw requestError(first, firstBody, request.path)
+    if (!expiredKey(first, firstBody) || request.retryExpired === false)
+      throw requestError(first, firstBody, request.path)
 
     const refreshed = await this.refreshCredential(connectionId, connection.origin, credential)
     this.assertOpen(connectionId)
@@ -249,7 +250,8 @@ export class OryhHttpClient {
   async schema(connectionId: ConnectionId): Promise<unknown> {
     if (this.options.delegated) {
       const answer = await this.delegate(connectionId, { path: '/openapi.json', root: true })
-      if (answer.status !== 200) throw new OryhClientError(`ORYH did not serve its API schema (HTTP ${answer.status}).`, 'invalid-response')
+      if (answer.status !== 200)
+        throw new OryhClientError(`ORYH did not serve its API schema (HTTP ${answer.status}).`, 'invalid-response')
       return answer.body
     }
     this.assertOpen(connectionId)
@@ -260,20 +262,26 @@ export class OryhHttpClient {
       redirect: 'error',
       headers: { Accept: 'application/json' },
     })
-    if (!response.ok) throw new OryhClientError(`ORYH did not serve its API schema (HTTP ${response.status}).`, 'invalid-response')
+    if (!response.ok)
+      throw new OryhClientError(`ORYH did not serve its API schema (HTTP ${response.status}).`, 'invalid-response')
     return response.json()
   }
 
-  private async send(connectionId: ConnectionId, origin: string, request: OryhRequest, accessKey: string): Promise<FetchResponse> {
+  private async send(
+    connectionId: ConnectionId,
+    origin: string,
+    request: OryhRequest,
+    accessKey: string,
+  ): Promise<FetchResponse> {
     return this.fetcher(request.root ? `${origin}${request.path}` : apiPath(origin, request.path), {
       signal: this.requestSignal(connectionId),
       method: request.method ?? 'GET',
       redirect: 'error',
       headers: {
         'X-API-Key': accessKey,
-        ...request.body === undefined ? {} : { 'Content-Type': 'application/json' },
+        ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
-      ...request.body === undefined ? {} : { body: JSON.stringify(request.body) },
+      ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
     })
   }
 
@@ -302,9 +310,9 @@ function shouldRefresh(credential: CredentialPair, now: Date, refreshAheadMs: nu
 
 /** Compare complete credential generations without ever exposing either value to a caller. */
 function sameCredential(left: CredentialPair, right: CredentialPair): boolean {
-  return left.accessKey === right.accessKey
-    && left.refreshToken === right.refreshToken
-    && left.expiresAt === right.expiresAt
+  return (
+    left.accessKey === right.accessKey && left.refreshToken === right.refreshToken && left.expiresAt === right.expiresAt
+  )
 }
 
 /** Normalize one host-owned refresh lead time before network work begins. */
@@ -320,12 +328,27 @@ function requestError(response: FetchResponse, body: unknown, path?: string): Or
   // Recognize only this endpoint's documented conflict shapes. Never echo server detail.
   if (response.status === 409 && path?.split('?')[0] === '/timesheet-headers') {
     const detail = errorDetail(body) ?? ''
-    const id = '[0-9a-fA-F-]{36}', date = '[0-9]{4}-[0-9]{2}-[0-9]{2}'
-    if (new RegExp(`^timesheet header ${id} already covers period ${date}\\.\\.${date} for employee ${id}$`).test(detail)) {
-      return new OryhClientError('您在这个起止日期范围内已有工时单，不能重复新建。请到“我的工时”查看现有单据；如需补充工时，请修改现有单据的明细。当前填写内容仍保留。', 'timesheet-conflict', 409)
+    const id = '[0-9a-fA-F-]{36}',
+      date = '[0-9]{4}-[0-9]{2}-[0-9]{2}'
+    if (
+      new RegExp(`^timesheet header ${id} already covers period ${date}\\.\\.${date} for employee ${id}$`).test(detail)
+    ) {
+      return new OryhClientError(
+        '您在这个起止日期范围内已有工时单，不能重复新建。请到“我的工时”查看现有单据；如需补充工时，请修改现有单据的明细。当前填写内容仍保留。',
+        'timesheet-conflict',
+        409,
+      )
     }
-    if (new RegExp(`^deleted timesheet header ${id} still holds period ${date}\\.\\.${date} for employee ${id}; restore it instead of recreating$`).test(detail)) {
-      return new OryhClientError('这个起止日期范围内已有被删除的工时单，仍占用该期间。请联系管理员恢复原单据后继续处理。当前填写内容仍保留。', 'timesheet-conflict', 409)
+    if (
+      new RegExp(
+        `^deleted timesheet header ${id} still holds period ${date}\\.\\.${date} for employee ${id}; restore it instead of recreating$`,
+      ).test(detail)
+    ) {
+      return new OryhClientError(
+        '这个起止日期范围内已有被删除的工时单，仍占用该期间。请联系管理员恢复原单据后继续处理。当前填写内容仍保留。',
+        'timesheet-conflict',
+        409,
+      )
     }
   }
   return new OryhClientError(

@@ -1,14 +1,32 @@
-import { describe, it, expect } from 'vitest'
-import { PAGES, allowedPages, canAccessPage, hasPermission, pageById, pageIds, type PageIdentity } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
+import {
+  allowedPages,
+  canAccessPage,
+  hasPermission,
+  PAGES,
+  type PageIdentity,
+  pageById,
+  pageIds,
+} from '../src/index.js'
 
-const identity = (permissions: string[], employeeId: string | null = 'employee-1'): PageIdentity =>
-  ({ permissions, user: { employeeId } })
+const identity = (permissions: string[], employeeId: string | null = 'employee-1'): PageIdentity => ({
+  permissions,
+  user: { employeeId },
+})
 
 describe('page registry', () => {
   it('registers every page once, in menu order, with settings last', () => {
     expect(pageIds()).toEqual([
-      'my-open-todos', 'my-expense-claims', 'timesheets', 'timesheet-approvals', 'list-projects',
-      'sales-orders', 'inventory-items', 'inventory-item-details', 'shipments', 'settings',
+      'my-open-todos',
+      'my-expense-claims',
+      'timesheets',
+      'timesheet-approvals',
+      'list-projects',
+      'sales-orders',
+      'inventory-items',
+      'inventory-item-details',
+      'shipments',
+      'settings',
     ])
     expect(new Set(pageIds()).size).toBe(PAGES.length)
     for (const page of PAGES) expect(pageById(page.id)).toBe(page)
@@ -50,8 +68,15 @@ describe('page registry', () => {
     // approval.record reaches past approvals: it also grants expenses and sales-orders,
     // and inventory.manage implies shipments. Only list-projects stays out of reach.
     expect(allowedPages(manager)).toEqual([
-      'my-open-todos', 'my-expense-claims', 'timesheets', 'timesheet-approvals',
-      'sales-orders', 'inventory-items', 'inventory-item-details', 'shipments', 'settings',
+      'my-open-todos',
+      'my-expense-claims',
+      'timesheets',
+      'timesheet-approvals',
+      'sales-orders',
+      'inventory-items',
+      'inventory-item-details',
+      'shipments',
+      'settings',
     ])
   })
 })

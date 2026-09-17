@@ -1,5 +1,5 @@
-import {requirePage} from './access.js'
-import { operationResultId, type ConnectionId, type OperationResultId } from './brand.js'
+import { requirePage } from './access.js'
+import { type ConnectionId, type OperationResultId, operationResultId } from './brand.js'
 import type { ConnectionRegistry } from './connections.js'
 import {
   decodeExpenseClaims,
@@ -74,14 +74,8 @@ export class OperationExecutor {
   ) {}
 
   /** Execute one registered operation within a tenant-bound connection. */
-  async execute(
-    connectionId: ConnectionId,
-    operationId: 'my-open-todos',
-  ): Promise<OperationResult<OryhTodo>>
-  async execute(
-    connectionId: ConnectionId,
-    operationId: 'list-projects',
-  ): Promise<OperationResult<OryhProject>>
+  async execute(connectionId: ConnectionId, operationId: 'my-open-todos'): Promise<OperationResult<OryhTodo>>
+  async execute(connectionId: ConnectionId, operationId: 'list-projects'): Promise<OperationResult<OryhProject>>
   async execute(
     connectionId: ConnectionId,
     operationId: 'my-expense-claims',
@@ -91,7 +85,8 @@ export class OperationExecutor {
     operationId: OperationId,
   ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
     const connection = this.connections.requireVerified(connectionId)
-    if(operationId==='list-projects'||connection.identity.user.employeeId)requirePage(connection.identity,operationId)
+    if (operationId === 'list-projects' || connection.identity.user.employeeId)
+      requirePage(connection.identity, operationId)
     const generation = this.#generations.get(connectionId) ?? 0
     let result: OryhList<OperationValue>
     switch (operationId) {
@@ -112,7 +107,9 @@ export class OperationExecutor {
           throw new OryhClientError('This ORYH user is not linked to an employee.', 'employee-required')
         }
         const query = new URLSearchParams({ employee_id: connection.identity.user.employeeId })
-        result = decodeExpenseClaims(await this.http.request(connectionId, { path: `/expense-claims?${query.toString()}` }))
+        result = decodeExpenseClaims(
+          await this.http.request(connectionId, { path: `/expense-claims?${query.toString()}` }),
+        )
         break
       }
       case 'list-projects':
@@ -123,7 +120,10 @@ export class OperationExecutor {
     }
     this.connections.requireVerified(connectionId)
     if (generation !== (this.#generations.get(connectionId) ?? 0)) {
-      throw new OryhClientError('The connection changed while this operation was running.', 'connection-verification-required')
+      throw new OryhClientError(
+        'The connection changed while this operation was running.',
+        'connection-verification-required',
+      )
     }
     const execution = {
       id: operationResultId(`result-${this.#nextResultId}`),
@@ -157,15 +157,12 @@ export class OperationExecutor {
       throw new OryhClientError('The requested ORYH operation result no longer exists.', 'operation-not-found')
     }
     if (result.connectionId !== connectionId) {
-      throw new OryhClientError(
-        'An ORYH result cannot be reused across connections.',
-        'cross-connection-result',
-      )
+      throw new OryhClientError('An ORYH result cannot be reused across connections.', 'cross-connection-result')
     }
     if (expectedOperation !== undefined && result.operationId !== expectedOperation) {
       throw new OryhClientError('The result belongs to another operation.', 'operation-not-found')
     }
-    requirePage(this.connections.requireVerified(connectionId).identity,result.operationId)
+    requirePage(this.connections.requireVerified(connectionId).identity, result.operationId)
     return result as OperationResult<Value>
   }
 }

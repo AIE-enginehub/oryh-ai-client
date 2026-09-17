@@ -1,4 +1,4 @@
-import { connectionId, type ConnectionId } from './brand.js'
+import { type ConnectionId, connectionId } from './brand.js'
 import type { OryhIdentity } from './contracts.js'
 import { OryhClientError } from './errors.js'
 
@@ -40,7 +40,10 @@ export class ConnectionRegistry {
     const restored = new Map<ConnectionId, ConnectionSummary>()
     for (const connection of connections) {
       if (restored.has(connection.id)) {
-        throw new OryhClientError('ORYH connection restore contains duplicate connection IDs.', 'connection-store-failed')
+        throw new OryhClientError(
+          'ORYH connection restore contains duplicate connection IDs.',
+          'connection-store-failed',
+        )
       }
       restored.set(connection.id, {
         ...connection,
