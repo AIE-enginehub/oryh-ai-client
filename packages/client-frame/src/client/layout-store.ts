@@ -15,6 +15,8 @@ export type BusinessView =
 export interface FrameIdentity {
   company: string
   email: string
+  /** Sign out of a deployment that holds this sign-in; absent on the desktop, where nobody signed in here. */
+  signOut?: () => void
   allowedPages?: string[]
   views?: { id: string; label: string }[]
 }

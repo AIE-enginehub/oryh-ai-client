@@ -25,6 +25,10 @@ export const zhCN = {
   userCode: '设备短码',
   waitingApproval: '等待浏览器授权',
   cancel: '取消',
+  signOut: '登出',
+  signOutTitle: '退出当前账号？',
+  signOutDescription:
+    '这会结束本次登录，撤销它对 ORYH 的授权，并关闭你的工作区；未保存的草稿仍保留在你的磁盘上。之后可以重新选择服务器登录。',
   disconnect: '断开本地连接',
   disconnectTitle: '断开当前企业连接？',
   disconnectDescription:

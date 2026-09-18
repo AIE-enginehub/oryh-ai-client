@@ -184,11 +184,15 @@ export function PaneProvider({
   // The sync loop: whatever changed — page, context or acknowledgements — the Host gets the whole
   // pane state once, under the next revision. A failed sync is retried with the latest state; the
   // Host ignores anything older than what it holds, so a late retry cannot roll it back.
+  //
+  // The revision counts on across the loop's own restarts, which a page change is one of: starting it
+  // over would make the sync that carries the new page — and the acknowledgement of the command that
+  // opened it — look older than what the Host already has, and the Host would drop it.
+  const revision = useRef(0)
   useLayoutEffect(() => {
     if (!bound || sessionId === undefined) return
     const session = sessionId
     let live = true,
-      revision = 0,
       timer: ReturnType<typeof setTimeout> | undefined,
       inFlight = false,
       dirty = false
@@ -200,13 +204,13 @@ export function PaneProvider({
       inFlight = true
       dirty = false
       const snapshot = local.getSnapshot()
-      revision++
+      revision.current++
       try {
         await api.paneSync({
           sessionId: session,
           connectionId,
           instance,
-          revision,
+          revision: revision.current,
           page,
           ...(snapshot.context ? { context: snapshot.context } : {}),
           ...(snapshot.acks.length ? { acks: [...snapshot.acks] } : {}),

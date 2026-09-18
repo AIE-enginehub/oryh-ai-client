@@ -287,6 +287,8 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-global-identity { display:flex; align-items:center; gap:12px; min-width:0; padding-left:20px; border-left:1px solid var(--oryh-line); font-size:11px; }
 .oryh-global-identity strong, .oryh-global-identity span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .oryh-global-identity strong { font-weight:500; }
+.oryh-sign-out { flex:none; padding:2px 8px; font-size:11px; color:var(--dsw-alias-label-primary,#26313c); background:transparent; border:1px solid var(--oryh-line); border-radius:4px; cursor:pointer; }
+.oryh-sign-out:hover { background:var(--dsw-alias-bg-hover,#f3f5f7); }
 .oryh-global-identity span { opacity:.6; }
 @media (max-width:850px) {
  .oryh-frame-toolbar { padding-inline:12px; gap:8px; }

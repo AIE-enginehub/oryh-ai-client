@@ -47,12 +47,17 @@ describe('session binding', () => {
       await f.close()
     }
   })
-  it('rejects forked sessions and sessions this Host does not know', async () => {
+  it('binds a session that has not been spoken to yet, and refuses a fork whenever it is seen', async () => {
     const f = await setup()
     try {
-      await expect(f.pane.bind({ sessionId: 'other', connectionId })).rejects.toThrow(/已打开的会话/)
+      // The workbench binds as it opens; a reopened session gets its agent only when the person speaks.
+      expect((await f.pane.bind({ sessionId: 'other', connectionId })).ready).toBe(true)
+      expect((await f.bind()).ready).toBe(true)
+      // The session turns out to be a branch: its business tools are refused, and so is binding it again.
       f.agent.session.header.parentSession = 'parent'
+      expect(() => f.pane.home('s')).toThrow(/分支/)
       await expect(f.bind()).rejects.toThrow(/分支/)
+      expect(f.pane.home('other')).toBeDefined()
     } finally {
       await f.close()
     }
@@ -151,6 +156,24 @@ describe('navigation commands', () => {
         content: '费用乙',
       })
       expect(JSON.parse(await opening).context.content).toBe('费用乙')
+    } finally {
+      await f.close()
+    }
+  })
+  it('keeps a page opening alive while the pane is still reporting the page it was asked from', async () => {
+    const f = await setup()
+    try {
+      await f.bind()
+      f.page.sync('list-projects', { key: 'list', title: '项目', detail: '', scope: '' })
+      const opening = f.tool('oryh_navigate').execute({ page: 'my-expense-claims' }, f.exec)
+      await until(() => f.navigation() !== undefined)
+      // The page the person is on goes on reporting itself — a list finishes loading, say — while the
+      // pane has not moved yet. That is not the person navigating away from the command.
+      f.page.sync('list-projects', { key: 'list', title: '项目', detail: '第 2 页', scope: '' })
+      f.page.sync('list-projects', { key: 'list', title: '项目', detail: '第 3 页', scope: '' })
+      expect(f.navigation()).toBeDefined()
+      f.page.ack('navigation', 'my-expense-claims', { key: 'expenses', title: '费用', detail: '', scope: '' })
+      expect(JSON.parse(await opening).page).toBe('my-expense-claims')
     } finally {
       await f.close()
     }

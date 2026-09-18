@@ -28,6 +28,7 @@ export const dictionaries = {
   resizeMenuHint: '拖动调整业务菜单与会话区的高度，双击恢复自动',
   open: 'ORYH 业务',
   close: '返回对话',
+  signOut: '登出',
   title: 'ORYH 企业工作台',
 }
 export type OryhKey = keyof typeof dictionaries

@@ -25,6 +25,8 @@ import type {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     oryhConnectionRemote: ConnectionRemote
+    /** Where a browser signs out, on a deployment that holds the sign-in for it. Absent on the desktop. */
+    oryhManagedSignOut: string
   }
 }
 
@@ -38,10 +40,17 @@ export class ConnectionRemote extends TypertRemoteService {
     this.calls = new RemoteCalls(ctx, 'oryh')
     this.api = new OryhClientRemoteAdapter(ctx.oryhClient)
   }
-  /** Public deployment hint only; credentials never cross this Remote. */
-  @Remote('connectionDefaults') connectionDefaults(): { origin: string } {
+  /**
+   * Public deployment hint only; credentials never cross this Remote.
+   *
+   * `signOut` is the multi-user server's: there the person did not connect an enterprise themselves —
+   * the deployment signed them in — so the workbench offers one way out instead of connecting and
+   * disconnecting local credentials, and follows this path to take it.
+   */
+  @Remote('connectionDefaults') connectionDefaults(): { origin: string; signOut?: string } {
+    const signOut = this.ctx.get('oryhManagedSignOut')
     const value = process.env.ORYH_SERVER_ORIGIN?.trim()
-    if (!value) return { origin: '' }
+    if (!value) return { origin: '', ...(signOut ? { signOut } : {}) }
     const url = new URL(value)
     if (
       !['http:', 'https:'].includes(url.protocol) ||
@@ -53,7 +62,7 @@ export class ConnectionRemote extends TypertRemoteService {
     ) {
       throw new Error('ORYH_SERVER_ORIGIN must be an HTTP(S) origin without credentials or a path')
     }
-    return { origin: url.origin }
+    return { origin: url.origin, ...(signOut ? { signOut } : {}) }
   }
   @Remote('listConnections') listConnections(): Promise<readonly ConnectionSummary[]> {
     return this.calls.call(() => this.ctx.oryhClient.listConnections())

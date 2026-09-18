@@ -68,12 +68,16 @@ export function App({
   const [busy, setBusy] = useState<BusyAction>('load')
   const [error, setError] = useState<string | undefined>()
   const [origin, setOrigin] = useState('')
+  /** Where this deployment signs people out, when it is the one holding the sign-in (the server). */
+  const [signOut, setSignOut] = useState<string>()
   useEffect(() => {
     let live = true
     void remote
       .connectionDefaults()
       .then(defaults => {
-        if (live) setOrigin(current => current || defaults.origin)
+        if (!live) return
+        setOrigin(current => current || defaults.origin)
+        setSignOut(defaults.signOut)
       })
       .catch(() => {
         /* A default is optional; users can still enter their server. */
@@ -83,6 +87,7 @@ export function App({
     }
   }, [remote])
   const [disconnectOpen, setDisconnectOpen] = useState(false)
+  const [signOutOpen, setSignOutOpen] = useState(false)
   const isDark = dark
   const selectedConnection =
     snapshot.activeConnectionId === undefined
@@ -144,10 +149,21 @@ export function App({
   const menuViewsKey = JSON.stringify(menuViews)
   const company = activeConnection ? tenantName(activeConnection) : undefined
   const email = activeConnection?.identity.user.email
+  const askSignOut = useCallback(() => setSignOutOpen(true), [])
   useEffect(() => {
-    onIdentity(company && email ? { company, email, allowedPages: permittedPages, views: menuViews } : undefined)
+    onIdentity(
+      company && email
+        ? {
+            company,
+            email,
+            allowedPages: permittedPages,
+            views: menuViews,
+            ...(signOut === undefined ? {} : { signOut: askSignOut }),
+          }
+        : undefined,
+    )
     return () => onIdentity(undefined)
-  }, [company, email, onIdentity, allowedKey, menuViewsKey])
+  }, [company, email, onIdentity, allowedKey, menuViewsKey, signOut, askSignOut])
   const apply = useCallback(
     async (action: () => Promise<void>, nextBusy: BusyAction) => {
       const generation = ++actionGeneration.current
@@ -230,22 +246,26 @@ export function App({
           </Select>
         </Field>
       )}
-      <div className="toolbar">
-        {activeConnection && !snapshot.pendingConnection && (
-          <Button
-            disabled={busy !== undefined || expenseDirty}
-            onClick={() => {
-              setOrigin(activeConnection.origin)
-              void apply(async () => {
-                await workspace.beginConnection(activeConnection.origin, copy.productName)
-              }, 'connect')
-            }}
-          >
-            {copy.connectAnotherAccount}
-          </Button>
-        )}
-      </div>
-      {activeConnection && (
+      {/* Connecting and disconnecting are the desktop's, where the person holds the credential. On a
+          deployment that signed them in, the one thing to offer is the way out. */}
+      {signOut === undefined && (
+        <div className="toolbar">
+          {activeConnection && !snapshot.pendingConnection && (
+            <Button
+              disabled={busy !== undefined || expenseDirty}
+              onClick={() => {
+                setOrigin(activeConnection.origin)
+                void apply(async () => {
+                  await workspace.beginConnection(activeConnection.origin, copy.productName)
+                }, 'connect')
+              }}
+            >
+              {copy.connectAnotherAccount}
+            </Button>
+          )}
+        </div>
+      )}
+      {activeConnection && signOut === undefined && (
         <div className="disconnect-section">
           <p>{copy.disconnectDescription}</p>
           <Button disabled={busy !== undefined || expenseDirty} onClick={() => setDisconnectOpen(true)}>
@@ -343,6 +363,34 @@ export function App({
             />
           )}
         </main>
+      )}
+      {signOut !== undefined && (
+        <Dialog
+          open={signOutOpen}
+          onOpenChange={(_event, data) => {
+            if (!data.open) setSignOutOpen(false)
+          }}
+        >
+          <DialogSurface>
+            <DialogBody>
+              <DialogTitle>{copy.signOutTitle}</DialogTitle>
+              <DialogContent>{copy.signOutDescription}</DialogContent>
+              <DialogActions>
+                <Button appearance="secondary" onClick={() => setSignOutOpen(false)}>
+                  {copy.cancel}
+                </Button>
+                <Button
+                  appearance="primary"
+                  onClick={() => {
+                    window.location.assign(signOut)
+                  }}
+                >
+                  {copy.signOut}
+                </Button>
+              </DialogActions>
+            </DialogBody>
+          </DialogSurface>
+        </Dialog>
       )}
       <DisconnectDialog
         busy={busy}

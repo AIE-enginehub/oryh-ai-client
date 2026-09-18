@@ -20,7 +20,7 @@ export interface PaneRemote {
   reviewClear(sessionId: string): Promise<void>
 }
 export interface ConnectionRemote {
-  connectionDefaults(): Promise<{ origin: string }>
+  connectionDefaults(): Promise<{ origin: string; signOut?: string }>
   skillSync(connectionId: string, force?: boolean): Promise<SkillRefreshResult>
 }
 /**

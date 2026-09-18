@@ -72,8 +72,10 @@ describe('the pane provider', () => {
         expect(syncs.at(-1)).toMatchObject({ sessionId: 's', page, context: { key: `${page}:list` } })
       }
       expect(api.paneBind).toHaveBeenCalledTimes(1)
+      // Strictly rising, and across page changes too: the Host drops a sync whose revision it already
+      // holds for this instance, and that sync is the one carrying the new page and its acknowledgement.
       const revisions = syncs.map(s => s.revision)
-      expect(revisions).toEqual([...revisions].sort((a, b) => a - b))
+      expect(revisions.every((revision, i) => i === 0 || revision > revisions[i - 1]!)).toBe(true)
       expect(new Set(syncs.map(s => s.instance)).size).toBe(1)
       // A command the page carries out is acknowledged on the next sync, and only once.
       await act(async () => {

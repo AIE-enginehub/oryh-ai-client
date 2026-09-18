@@ -315,6 +315,11 @@ function Frame({ useStore, actions, renderSlot, t, pages }: FrameProps & { pages
             <div className="oryh-global-identity">
               <strong title={state.identity.company}>{state.identity.company}</strong>
               <span title={state.identity.email}>{state.identity.email}</span>
+              {state.identity.signOut && (
+                <button className="oryh-sign-out" onClick={state.identity.signOut}>
+                  {t('signOut')}
+                </button>
+              )}
             </div>
           )}
         </div>

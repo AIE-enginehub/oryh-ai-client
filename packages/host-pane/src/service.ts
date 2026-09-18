@@ -95,13 +95,10 @@ export class PaneService {
   }
 
   private async doBind(request: PaneBindRequest): Promise<PaneBindView> {
-    const agent = this.ctx.agents.get(SessionId(request.sessionId))
-    if (!agent) throw fail('请先选择一个已打开的会话。')
-    if (agent.session.header.parentSession || agent.session.header.isSeeded)
-      throw new OryhClientError(
-        '业务查询请使用新的独立会话，不能绑定复制了其他会话历史的分支。',
-        'cross-connection-result',
-      )
+    // A session the person reopens has no agent until they say something, and the workbench binds as
+    // soon as it opens, so a binding cannot wait for one. The branch rule is checked here when there
+    // is an agent to check, and again in `home()`, where a business tool always has one.
+    this.refuseBranch(request.sessionId)
     const connection = (await this.connections.listConnections()).find(c => c.id === request.connectionId)
     if (!connection) throw new OryhClientError('企业连接已失效，请重新连接。', 'connection-not-found')
     const previous = this.registry.get(request.sessionId)
@@ -139,10 +136,17 @@ export class PaneService {
     const session = this.registry.apply(request.sessionId, request)
     if (session === undefined) return
     // A command this very sync acknowledges is kept: the page may have moved on to answer it, and
-    // the wait that issued it decides whether where the page now is satisfies it.
+    // the wait that issued it decides whether where the page now is satisfies it. So is one the pane
+    // has not answered yet and is still where it was asked from — a command to open another page is
+    // issued while the pane is somewhere else, and the pane goes on reporting that page until it moves.
     const acked = new Set((request.acks ?? []).map(ack => ack.id))
     for (const command of this.queue.list(request.sessionId))
-      if (command.page !== undefined && command.page !== session.page && !acked.has(command.id))
+      if (
+        command.page !== undefined &&
+        command.page !== session.page &&
+        command.from !== session.page &&
+        !acked.has(command.id)
+      )
         this.queue.withdraw(request.sessionId, command.lane, command.id)
     // The menu is read from the workspace once per binding; later changes publish themselves.
     if (!this.#menus.has(request.sessionId)) void this.refreshMenu(request.sessionId).catch(() => {})
@@ -154,11 +158,25 @@ export class PaneService {
     return this.registry.get(sessionId)
   }
 
-  /** The session's pane; throws when the session is not bound to an enterprise. */
+  /** The session's pane; throws when the session is not bound to an enterprise, or is a branch. */
   home(sessionId: string): PaneSession {
     const session = this.registry.get(sessionId)
     if (!session) throw fail('请先连接企业并打开会话。')
+    this.refuseBranch(sessionId)
     return session
+  }
+
+  /**
+   * Refuse a session that copied another's history: its questions and its page belong to the session
+   * it was cut from, not to this one. A session with no agent yet cannot be one, and is left alone.
+   */
+  private refuseBranch(sessionId: string): void {
+    const agent = this.ctx.agents.get(SessionId(sessionId))
+    if (agent?.session.header.parentSession || agent?.session.header.isSeeded)
+      throw new OryhClientError(
+        '业务查询请使用新的独立会话，不能绑定复制了其他会话历史的分支。',
+        'cross-connection-result',
+      )
   }
 
   /** The session's pane with a page showing; throws the no-page notice otherwise. */
@@ -247,10 +265,12 @@ export class PaneService {
 
   /** Publish a command without waiting on it; the page acts when it can. */
   publish(sessionId: string, spec: CommandSpec): AnyPaneCommand {
+    const from = this.registry.get(sessionId)?.page
     const command = {
       lane: spec.lane,
       id: randomUUID(),
       ...(spec.page === undefined ? {} : { page: spec.page }),
+      ...(from === undefined ? {} : { from }),
       payload: spec.payload,
       expiresAt: Date.now() + spec.timeoutMs,
     } as AnyPaneCommand

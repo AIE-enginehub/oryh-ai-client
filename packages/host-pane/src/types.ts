@@ -138,8 +138,13 @@ export type PaneFormProposal =
 export interface PaneCommand<Lane extends string = string, Payload = unknown> {
   lane: Lane
   id: string
-  /** The page the command is for; a sync from another page withdraws it. */
+  /** The page the command is for; a sync from a third page withdraws it. */
   page?: PageId
+  /**
+   * The page the pane was on when this was issued. A command that moves the pane is answered from
+   * where it started, so a sync from there is not the person navigating away from it.
+   */
+  from?: PageId
   payload: Payload
   expiresAt: number
 }
