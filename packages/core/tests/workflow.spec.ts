@@ -16,36 +16,36 @@ function http(answer: (path: string) => unknown) {
 }
 
 const rows = (data: unknown) => () => ({ data })
+const rule = (body: string, kind = 'approval_flow') => ({ kind, body, status: 'published' })
 
-describe('workflow definitions', () => {
-  it('reports an object type as governed only when the tenant defined something for it', async () => {
+describe('the rules a tenant governs an object type with', () => {
+  it('reports an object type as governed only when the tenant published something for it', async () => {
     const transport = http(path =>
-      path.includes('timesheet_header')
-        ? { data: [{ definition_text: '单周合计不少于 30 小时', status: 'active' }] }
-        : { data: [] },
+      path.includes('timesheet_header') ? { data: [rule('单周合计不少于 30 小时')] } : { data: [] },
     )
     const workflows = new WorkflowDefinitions(transport.client)
 
     expect(await workflows.governed('c', 'timesheet_header')).toBe(true)
-    // Nothing defined means nothing to check: a submit must not be blocked for a tenant that runs
+    // Nothing published means nothing to check: a submit must not be blocked for a tenant that runs
     // no flow for this document at all.
     expect(await workflows.governed('c', 'project')).toBe(false)
     expect(await workflows.texts('c', 'timesheet_header')).toEqual(['单周合计不少于 30 小时'])
-    // The object type is pushed to the server rather than filtered here.
-    expect(transport.paths[0]).toContain('object_type=timesheet_header')
+    // The object type, and that only what is published counts, are pushed to the server.
+    expect(transport.paths[0]).toBe('/business-rules?object_type=timesheet_header&status=published&size=100')
   })
 
-  it('skips a definition the tenant switched off, and keeps ones with no status at all', async () => {
+  it('reads every kind of rule keyed to the object type, and no company-wide policy', async () => {
     const workflows = new WorkflowDefinitions(
       http(
         rows([
-          { definition_text: '旧规则', status: 'archived' },
-          { definition_text: '当前规则', status: 'active' },
-          { definition_text: '没有 status 字段的部署' },
+          rule('谁来审批'),
+          rule('提交时要满足什么', 'data_rule'),
+          rule('到某状态后联动什么', 'linkage'),
+          rule('差旅标准', 'policy'),
         ]),
       ).client,
     )
-    expect(await workflows.texts('c', 'expense_claim')).toEqual(['当前规则', '没有 status 字段的部署'])
+    expect(await workflows.texts('c', 'expense_claim')).toEqual(['谁来审批', '提交时要满足什么', '到某状态后联动什么'])
   })
 
   it('treats a failed lookup as governed, so a network blip cannot switch the gate off', async () => {
@@ -59,7 +59,7 @@ describe('workflow definitions', () => {
   })
 
   it('caches within its window and goes back to the server once it lapses', async () => {
-    const transport = http(rows([{ definition_text: '规则', status: 'active' }]))
+    const transport = http(rows([rule('规则')]))
     const workflows = new WorkflowDefinitions(transport.client, 0)
     await workflows.governed('c', 'sales_order')
     await workflows.governed('c', 'sales_order')

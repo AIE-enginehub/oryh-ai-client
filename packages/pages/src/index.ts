@@ -17,14 +17,12 @@ export interface PageIdentity {
 /** Every business page the client can open. */
 export type PageId =
   | 'my-open-todos'
-  | 'my-expense-claims'
-  | 'timesheets'
-  | 'timesheet-approvals'
-  | 'list-projects'
   | 'sales-orders'
   | 'inventory-items'
   | 'inventory-item-details'
   | 'shipments'
+  | 'analytics'
+  | 'collection'
   | 'settings'
 
 /**
@@ -41,6 +39,11 @@ export interface PageDefinition {
   readonly title: string
   /** Whether this identity may open the page at all. */
   readonly access: (identity: PageIdentity) => boolean
+  /**
+   * No longer a page of its own (docs/57): it is in no menu, nobody is taken to it, and the agent cannot
+   * navigate there. It is still what draws a list a person made over its collection.
+   */
+  readonly retired?: true
 }
 
 /**
@@ -59,39 +62,67 @@ export function hasPermission(identity: PageIdentity, verb: string): boolean {
   )
 }
 
-const any = (identity: PageIdentity, ...verbs: string[]): boolean => verbs.some(verb => hasPermission(identity, verb))
 const employee = (identity: PageIdentity): boolean => Boolean(identity.user.employeeId)
 
 /**
- * Product entry policy in menu order, using server grants rather than role names.
+ * The pages, in menu order, and who may open each.
  *
- * Read APIs may be broader; these rules are the client's functional entry limits and
- * do not replace ORYH's row-level authorization.
+ * Only the to-do page has a rule of its own: it is the signed-in employee's list, and someone with no
+ * employee record has none. Who may read a collection is ORYH's to decide. This client used to add entry
+ * rules of its own over projects, sales orders, inventory and shipments — narrower than ORYH's read
+ * permissions — but they held only for menus and pages, while the agent read the same collections under
+ * ORYH's permissions alone; they were removed on 2026-10-11, and a person ORYH does not let read a
+ * collection is told so by ORYH when the list is read.
  */
 export const PAGES: readonly PageDefinition[] = [
   { id: 'my-open-todos', title: '我的待办', access: employee },
+  // The four record lists: no longer pages, kept as what draws a list made over these collections.
+  { id: 'sales-orders', title: '销售订单', access: () => true, retired: true },
+  { id: 'inventory-items', title: '库存余额', access: () => true, retired: true },
+  { id: 'inventory-item-details', title: '库存流水', access: () => true, retired: true },
+  { id: 'shipments', title: 'Shipment · 收发货', access: () => true, retired: true },
   {
-    id: 'my-expense-claims',
-    title: '费用申请',
-    access: i => employee(i) && any(i, 'expense.submit_own', 'expense.advance', 'approval.record'),
+    id: 'analytics',
+    title: '自定义页面',
+    // The page itself grants no source access; every source is checked against ORYH on read/load/run.
+    access: () => true,
   },
-  {
-    id: 'timesheets',
-    title: '我的工时',
-    access: i => employee(i) && any(i, 'timesheet.submit_own', 'timesheet.advance', 'approval.record'),
-  },
-  { id: 'timesheet-approvals', title: '工时审批', access: i => employee(i) && any(i, 'approval.record') },
-  { id: 'list-projects', title: '项目', access: i => any(i, 'master_data.manage', 'users.manage') },
-  {
-    id: 'sales-orders',
-    title: '销售订单',
-    access: i => any(i, 'order.submit_own', 'order.advance', 'approval.record'),
-  },
-  { id: 'inventory-items', title: '库存余额', access: i => any(i, 'inventory.manage') },
-  { id: 'inventory-item-details', title: '库存流水', access: i => any(i, 'inventory.manage') },
-  { id: 'shipments', title: 'Shipment · 收发货', access: i => any(i, 'shipment.manage') },
+  // Where a menu entry over a collection this client ships no page for is shown. It is a page, not a
+  // menu item: nothing registers a menu entry for it, and what a person may see there is ORYH's to decide.
+  { id: 'collection', title: '自定义列表', access: () => true },
   { id: 'settings', title: '企业连接', access: () => true },
 ]
+
+/**
+ * The page that draws a list over a whole ORYH collection, where this client has one that knows the
+ * collection: its columns, its filters, its record view. Every other collection is drawn by the generic
+ * list. This says nothing about who may read a collection.
+ */
+const COLLECTION_PAGES: Readonly<Record<string, PageId>> = {
+  'custom-pages': 'analytics',
+  'sales-orders': 'sales-orders',
+  'inventory-items': 'inventory-items',
+  'inventory-item-details': 'inventory-item-details',
+  shipments: 'shipments',
+}
+
+/**
+ * The page that knows a collection.
+ * @param collection - collection as ORYH's catalogue names it.
+ * @returns the page, or undefined when this client ships no page over that whole collection.
+ */
+export function pageForCollection(collection: string): PageId | undefined {
+  return Object.hasOwn(COLLECTION_PAGES, collection) ? COLLECTION_PAGES[collection] : undefined
+}
+
+/**
+ * The page that draws a list a person made over a collection.
+ * @param collection - collection as ORYH's catalogue names it.
+ * @returns the record list or custom page that knows the collection, or the generic list.
+ */
+export function listPageForCollection(collection: string): PageId {
+  return pageForCollection(collection) ?? 'collection'
+}
 
 const byId = new Map<string, PageDefinition>(PAGES.map(page => [page.id, page]))
 
@@ -105,11 +136,21 @@ export function pageById(id: string): PageDefinition | undefined {
 }
 
 /**
- * Every registered page id, in menu order.
+ * Every page a person can be on in its own right, in menu order.
  * @returns the ids, for menus and model tool enums.
  */
 export function pageIds(): PageId[] {
-  return PAGES.map(page => page.id)
+  return PAGES.filter(page => !page.retired).map(page => page.id)
+}
+
+/**
+ * Whether the id is a page a person can be on in its own right.
+ * @param id - candidate page id.
+ * @returns false for an unregistered id and for a retired page.
+ */
+export function offersPage(id: string): boolean {
+  const page = byId.get(id)
+  return page !== undefined && !page.retired
 }
 
 /**
@@ -128,7 +169,7 @@ export function canAccessPage(identity: PageIdentity, page: string): boolean {
  * @returns permitted ids in menu order.
  */
 export function allowedPages(identity: PageIdentity): PageId[] {
-  return PAGES.filter(page => page.access(identity)).map(page => page.id)
+  return PAGES.filter(page => !page.retired && page.access(identity)).map(page => page.id)
 }
 
 /**

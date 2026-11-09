@@ -1,15 +1,12 @@
 // @vitest-environment jsdom
 
 import type { ConnectionSummary } from '@oryh/ai-client-core'
+import { columnPreferenceScope, createColumnPreference, useColumnPreference } from '@oryh/ai-client-kit'
+import { fakeFace } from '@oryh/ai-client-kit/testing'
 import { recordDefaultColumns } from '@oryh/ai-client-records'
-import { columnPreferenceScope, createColumnPreference, useColumnPreference } from '@oryh/dsh-client-frame/client'
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { beforeEach, expect, it, vi } from 'vitest'
-
-// The frame re-exports Fluent, which does not load under Node; nothing here renders it.
-vi.mock('@fluentui/react-components', () => ({}))
-
 import { recordCatalog } from './catalog.js'
 
 const connection = {
@@ -23,9 +20,10 @@ beforeEach(() => {
 it('restores Chat column changes after the list unmounts and remounts', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   const container = document.createElement('div')
+  const { face } = fakeFace({ connection })
   let preference!: ReturnType<typeof useColumnPreference>
   function View() {
-    preference = useColumnPreference(connection, 'inventory-item-details', movements)
+    preference = useColumnPreference(face, 'inventory-item-details', movements)
     return createElement('div', null, preference[0].join(','))
   }
   let root = createRoot(container)

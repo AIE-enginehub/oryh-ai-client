@@ -3,9 +3,9 @@ import { isAbsolute, join } from 'node:path'
 import { OryhClientController } from './controller.js'
 import { OryhClientError } from './errors.js'
 import { OryhClientHost } from './host.js'
-import { attachDomains, type OryhHostKit, VERIFY_TTL_MS } from './local-runtime.js'
+import { type OryhHostKit, VERIFY_TTL_MS } from './local-runtime.js'
 import { JsonSavedOperationStore } from './saved-operations.js'
-import type { ServerBinding } from './server-read.js'
+import type { ServerBinding } from './server-binding.js'
 import { desktopSkillService } from './skill-service.js'
 
 /** What a trusted server process hands one person's business Host. Never browser or model input. */
@@ -64,11 +64,6 @@ export function createServerOryhHost(options: ServerRuntimeOptions): OryhHostKit
     data: { directory: options.dataDirectory, storeKey },
     abort: () => {},
   }
-}
-
-/** The same business runtime the desktop gets, for one person on the server, with every domain attached. */
-export function createServerOryhRuntime(options: ServerRuntimeOptions) {
-  return attachDomains(createServerOryhHost(options))
 }
 
 /** Copy only the binding's own members, so a spread cannot carry anything else along. */

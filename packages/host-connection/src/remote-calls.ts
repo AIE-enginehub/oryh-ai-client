@@ -26,14 +26,17 @@ export class RemoteCalls {
   }
 
   async call<T>(action: () => T | Promise<T>): Promise<T> {
-    if (this.#closed) throw new RemoteError('oryh/business', 'ORYH 插件已卸载。', { code: 'request-failed' })
+    if (this.#closed)
+      throw new RemoteError('oryh/business', 'The ORYH plugin has been unloaded.', { code: 'request-failed' })
     const pending = Promise.resolve().then(action)
     this.#active.add(pending)
     try {
       return await pending
     } catch (error) {
       if (error instanceof OryhClientError) throw new RemoteError('oryh/business', error.message, { code: error.code })
-      throw new RemoteError('oryh/business', 'ORYH 无法完成请求，请重试。', { code: 'request-failed' })
+      throw new RemoteError('oryh/business', 'ORYH could not complete the request. Please try again.', {
+        code: 'request-failed',
+      })
     } finally {
       this.#active.delete(pending)
     }

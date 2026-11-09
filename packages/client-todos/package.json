@@ -17,6 +17,7 @@
     "@deepseek-ai/dsh-client-ui-slots": "link:../../../deepseek-harness/packages/client/ui-slots",
     "@oryh/ai-client-core": "workspace:*",
     "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-kit": "workspace:*",
     "@oryh/ai-client-pages": "workspace:*",
     "@oryh/ai-client-todos": "workspace:*",
     "@oryh/dsh-client-frame": "workspace:*",
@@ -28,7 +29,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@fluentui/react-components": "^9.74.7",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.1"
   },
@@ -57,9 +57,6 @@
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-locale",
         "@oryh/dsh-client-frame"
-      ],
-      "external": [
-        "@oryh/dsh-client-frame/client"
       ]
     }
   }

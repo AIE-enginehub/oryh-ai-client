@@ -1,4 +1,5 @@
 /** An external root provider: only public slot, store, locale and layout contracts. */
+
 import type { Context } from '@deepseek-ai/cordis'
 import type { ILayout, MainPanelId, PanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -9,10 +10,15 @@ import type {
   PropsRuntime,
   PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconFilter, IconLayoutSidebarLeftCollapse, IconMessage, IconSettings } from '@tabler/icons-react'
-import { type CSSProperties, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { ChatActivity, SelectHook } from '@oryh/ai-client-kit'
+import { IconLayoutSidebarLeftCollapse, IconMessage } from '@tabler/icons-react'
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { type BusinessView, createFrameStore, type FrameIdentity } from './layout-store.js'
-import type { ClientPages } from './pages-registry.js'
+import { OryhLogo } from './logo.js'
+import { BusinessMenu } from './navigation.js'
+import type { ClientPages, PagesSnapshot } from './pages-registry.js'
+import { businessSessionOf } from './pane.js'
+import { registerSettingsEntry } from './settings-entry.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -23,6 +29,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         page: BusinessView
         navigate: (page: BusinessView) => void
         onIdentity: (identity: FrameIdentity | undefined) => void
+        /** Bring Chat forward, for a page that has just asked the agent something. */
+        showChat: () => void
       }
     }
   }
@@ -30,42 +38,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 type FrameProps = PropsRuntime<'root'> &
   PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'oryh.business'> &
   PropsStore<ReturnType<typeof createFrameStore>> &
-  PropsLocale<'oryh'>
-
-/**
- * The official ORYH logo: four connected records around one trusted center, plus the wordmark.
- *
- * Traced from `site/public/brand/oryh-logo.svg` in the ORYH repository rather than redrawn. The
- * two near-black fills become `currentColor` so the mark stays legible on a dark sidebar; only the
- * emerald accent is a fixed brand colour. `compact` drops the wordmark and keeps the square mark,
- * which is what fits an icon rail.
- * @param compact - render the mark alone instead of the full lockup.
- * @returns the inline logo, hidden from assistive tech when a text label sits beside it.
- */
-function OryhLogo({ compact }: { compact: boolean }) {
-  return (
-    <svg
-      className="oryh-logo"
-      viewBox={compact ? '0 0 40 40' : '0 0 73 40'}
-      role="img"
-      aria-label="ORYH"
-      focusable="false"
-    >
-      <rect x="7" y="4" width="17" height="8" rx="3" fill="currentColor" />
-      <rect x="28" y="9" width="8" height="17" rx="3" fill="currentColor" />
-      <rect x="16" y="28" width="17" height="8" rx="3" fill="#047857" />
-      <rect x="4" y="15" width="8" height="17" rx="3" fill="currentColor" />
-      {!compact && (
-        <g transform="translate(42.46 25.28)">
-          <path
-            fill="currentColor"
-            d="M1.54 0.00V-11.88H4.18V-8.98L3.89 -9.35Q4.12 -9.97 4.51 -10.47Q4.89 -10.98 5.46 -11.31Q5.88 -11.57 6.39 -11.72Q6.90 -11.87 7.44 -11.91Q7.97 -11.95 8.51 -11.88V-9.09Q8.02 -9.24 7.36 -9.19Q6.71 -9.14 6.18 -8.89Q5.65 -8.65 5.29 -8.24Q4.93 -7.84 4.74 -7.30Q4.55 -6.75 4.55 -6.07V0.00ZM10.03 5.28 12.32 -1.01 12.36 0.84 7.19 -11.88H10.30L13.77 -2.88H13.07L16.52 -11.88H19.51L12.80 5.28ZM27.50 0.00V-5.61Q27.50 -6.02 27.46 -6.65Q27.41 -7.28 27.18 -7.92Q26.95 -8.56 26.43 -8.99Q25.90 -9.42 24.95 -9.42Q24.56 -9.42 24.12 -9.29Q23.68 -9.17 23.30 -8.83Q22.91 -8.48 22.67 -7.81Q22.42 -7.14 22.42 -6.03L20.70 -6.84Q20.70 -8.25 21.27 -9.48Q21.85 -10.71 23.00 -11.47Q24.14 -12.23 25.89 -12.23Q27.29 -12.23 28.17 -11.76Q29.05 -11.29 29.54 -10.56Q30.03 -9.83 30.24 -9.05Q30.45 -8.26 30.49 -7.61Q30.54 -6.96 30.54 -6.67V0.00ZM19.38 0.00V-15.84H22.04V-7.70H22.42V0.00Z"
-          />
-        </g>
-      )}
-    </svg>
-  )
-}
+  PropsLocale<'oryh'> & { useMenuPages: SelectHook<PagesSnapshot> }
 
 /**
  * Provide exactly one root, and retract service, panel source and child declarations together.
@@ -81,7 +54,14 @@ export function registerFrame(ctx: Context, pages: ClientPages): void {
     const mainPanels = () =>
       ctx.slots.entries('main').flatMap(entry => (entry.options.key === undefined ? [] : [entry.options.key]))
     let navigation = new AbortController()
+    // The native sidebar reads this standard hook; ORYH owns it because it replaces ui-layout. Since DSH
+    // 0.1.7-rc.2 the layout service carries the same source.
+    const panelInfo: HostObservable<PanelInfo> = {
+      getSnapshot: () => instance.getSnapshot().panelInfo,
+      subscribe: listener => instance.subscribe(listener),
+    }
     const layout: ILayout = {
+      panelInfo,
       selectPanel: (panelId: MainPanelId | null) => {
         if (panelId !== null && !mainPanels().includes(panelId)) {
           throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
@@ -98,11 +78,14 @@ export function registerFrame(ctx: Context, pages: ClientPages): void {
       openRightbar: (track, fullscreen) => instance.actions.openRightbar(track, fullscreen),
       closeRightbar: () => instance.actions.closeRightbar(),
     }
-    // The native sidebar reads this standard hook; ORYH owns it because it replaces ui-layout.
-    const panelInfo: HostObservable<PanelInfo> = {
-      getSnapshot: () => instance.getSnapshot().panelInfo,
-      subscribe: listener => instance.subscribe(listener),
-    }
+    const removeSettings = registerSettingsEntry(
+      ctx,
+      {
+        getSnapshot: () => instance.getSnapshot().identity,
+        subscribe: listener => instance.subscribe(listener),
+      },
+      instance.actions.navigate,
+    )
     const removePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo } })
     const removeService = ctx.reflect.provide('layout', layout)
     const removeRoot = ctx.slots.register(
@@ -117,8 +100,10 @@ export function registerFrame(ctx: Context, pages: ClientPages): void {
           'shell.overlay': { kind: 'list', scope: 'root' },
           'oryh.business': { kind: 'single', scope: 'root' },
         },
+        // The pages the page plugins registered, as a source: the renderer makes the hook the menu reads.
+        inject: () => ({ hooks: { menuPages: pages } }),
       },
-      props => <Frame {...props} pages={pages} />,
+      Frame,
     )
     const retain = () => {
       instance.actions.retainMainPanels(mainPanels())
@@ -127,6 +112,7 @@ export function registerFrame(ctx: Context, pages: ClientPages): void {
     retain()
     return () => {
       navigation.abort()
+      removeSettings()
       removePanels()
       removeRoot()
       removePanelInfo()
@@ -136,9 +122,37 @@ export function registerFrame(ctx: Context, pages: ClientPages): void {
   }, 'oryh root layout')
 }
 
-function Frame({ useStore, actions, renderSlot, t, pages }: FrameProps & { pages: ClientPages }) {
+/**
+ * Whether what the agent just did deserves a mark on a Chat the person cannot see: a turn that ended
+ * with its reply, or one that stopped to ask them something. Nothing "arrives" from switching sessions,
+ * and nothing from the status a session is first seen in.
+ * @param before - the session and activity last seen, if any.
+ * @param now - the session and activity seen now.
+ */
+export function chatWantsAttention(
+  before: { session: string | undefined; activity: ChatActivity } | undefined,
+  now: { session: string | undefined; activity: ChatActivity },
+): boolean {
+  if (before === undefined || before.session !== now.session || before.activity === now.activity) return false
+  return now.activity === 'waiting' || (before.activity === 'running' && now.activity === 'idle')
+}
+
+function Frame({ useStore, actions, renderSlot, t, useMenuPages, useSessions, useSessionStatus }: FrameProps) {
   const state = useStore(s => s)
-  const menu = useSyncExternalStore(pages.subscribe, pages.getSnapshot).pages
+  // The session the business pane is bound to is the one whose replies the person is waiting for.
+  const chatSession = useSessions(businessSessionOf)
+  const chatActivity = useSessionStatus((statuses): ChatActivity => {
+    const status = [...statuses].find(([id]) => String(id) === chatSession)?.[1]
+    if (status === undefined) return 'none'
+    return status.pendingInteraction !== undefined ? 'waiting' : status.running ? 'running' : 'idle'
+  })
+  const lastChat = useRef<{ session: string | undefined; activity: ChatActivity }>(undefined)
+  useEffect(() => {
+    const now = { session: chatSession, activity: chatActivity }
+    if (chatWantsAttention(lastChat.current, now)) actions.chatReplied()
+    lastChat.current = now
+  }, [chatSession, chatActivity, actions])
+  const menu = useMenuPages(snapshot => snapshot.pages)
   const root = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const element = root.current
@@ -175,7 +189,7 @@ function Frame({ useStore, actions, renderSlot, t, pages }: FrameProps & { pages
       style={{ '--oryh-chat-width': `${chatWidth}px` } as CSSProperties}
     >
       <aside className="oryh-navigation" aria-label={t('businessNavigation')}>
-        <div className="oryh-brand">
+        <div className="oryh-brand" data-window-drag>
           <OryhLogo compact={compact} />
         </div>
         <nav
@@ -184,52 +198,14 @@ function Frame({ useStore, actions, renderSlot, t, pages }: FrameProps & { pages
           aria-label={t('text14')}
           style={menuHeight > 0 ? { height: `${menuHeight}px` } : undefined}
         >
-          {/* The pages whose plugins are loaded, in their own order, and only those this person may open. */}
-          {menu
-            .filter(page => page.page !== 'settings' && state.identity?.allowedPages?.includes(page.page))
-            .map(page => {
-              const Icon = page.icon
-              const label = page.label()
-              return (
-                <button
-                  key={page.page}
-                  title={label}
-                  aria-label={label}
-                  aria-current={state.page === page.page ? 'page' : undefined}
-                  onClick={() => actions.navigate(page.page)}
-                >
-                  <Icon size={19} />
-                  {!compact && <span>{label}</span>}
-                </button>
-              )
-            })}
-          {/* The person's own entries. Their names are data, not locale keys: nothing here translates them. */}
-          {(state.identity?.views ?? []).map(view => {
-            const page = `view:${view.id}` as const
-            return (
-              <button
-                key={page}
-                className="oryh-user-view"
-                title={view.label}
-                aria-label={view.label}
-                aria-current={state.page === page ? 'page' : undefined}
-                onClick={() => actions.navigate(page)}
-              >
-                <IconFilter size={19} />
-                {!compact && <span>{view.label}</span>}
-              </button>
-            )
-          })}
-          <button
-            key="settings"
-            title={t('text15')}
-            aria-label={t('text15')}
-            aria-current={state.page === 'settings' ? 'page' : undefined}
-            onClick={() => actions.navigate('settings')}
-          >
-            <IconSettings size={19} />
-            {!compact && <span>{t('text15')}</span>}
-          </button>
+          <BusinessMenu
+            pages={menu}
+            identity={state.identity}
+            current={state.page}
+            compact={compact}
+            navigate={actions.navigate}
+            t={t}
+          />
         </nav>
         {!compact && (
           <div
@@ -294,12 +270,12 @@ function Frame({ useStore, actions, renderSlot, t, pages }: FrameProps & { pages
             }}
           />
         )}
-        <div className="oryh-native-heading">{compact ? 'DS' : t('sessionsSettings')}</div>
+        <div className="oryh-native-heading">{compact ? 'AI' : t('sessionsSettings')}</div>
         <div id="oryh-native-sidebar" className="oryh-native-sidebar">
           {renderSlot('sidebar', { collapsed: compact, width: sidebarWidth })}
         </div>
       </aside>
-      <div className="oryh-frame-toolbar">
+      <div className="oryh-frame-toolbar" data-window-drag>
         <button
           className="oryh-collapse"
           title={compact ? t('expandMenu') : t('collapseMenu')}
@@ -314,45 +290,59 @@ function Frame({ useStore, actions, renderSlot, t, pages }: FrameProps & { pages
           {state.identity && (
             <div className="oryh-global-identity">
               <strong title={state.identity.company}>{state.identity.company}</strong>
-              <span title={state.identity.email}>{state.identity.email}</span>
-              {state.identity.signOut && (
-                <button className="oryh-sign-out" onClick={state.identity.signOut}>
-                  {t('signOut')}
-                </button>
-              )}
             </div>
           )}
         </div>
         <div className="oryh-mobile-switch">
-          <button aria-pressed={state.focus === 'business'} onClick={actions.showBusiness}>
+          <button
+            aria-pressed={state.focus === 'business'}
+            data-unseen={state.unseen || undefined}
+            onClick={actions.showBusiness}
+          >
             {t('businessView')}
           </button>
-          <button aria-pressed={state.focus === 'chat'} onClick={actions.showChat}>
+          <button
+            aria-pressed={state.focus === 'chat'}
+            data-unseen={state.chatUnseen || undefined}
+            title={state.chatUnseen ? t('replyWaiting') : undefined}
+            onClick={actions.showChat}
+          >
             {t('assistant')}
           </button>
         </div>
         <div className="oryh-chat-controls">
-          <button className="oryh-chat-toggle" aria-pressed={state.chatVisible} onClick={actions.toggleChat}>
+          <button
+            className="oryh-chat-toggle"
+            aria-pressed={state.chatVisible}
+            data-unseen={(!state.chatVisible && state.chatUnseen) || undefined}
+            title={!state.chatVisible && state.chatUnseen ? t('replyWaiting') : undefined}
+            onClick={actions.toggleChat}
+          >
             <IconMessage size={17} />
             {state.chatVisible ? t('hideChat') : t('showChat')}
           </button>
         </div>
       </div>
       <section className="oryh-business-seat" aria-label={t('businessView')}>
-        {renderSlot('oryh.business', { page: state.page, navigate: actions.navigate, onIdentity: actions.setIdentity })}
+        {renderSlot('oryh.business', {
+          page: state.page,
+          navigate: actions.navigate,
+          onIdentity: actions.setIdentity,
+          showChat: actions.showChat,
+        })}
       </section>
       {state.chatVisible && (
         <div
           className="oryh-chat-resizer"
           role="separator"
-          aria-label="调整 Chat 宽度"
+          aria-label={t('chatResize')}
           aria-orientation="vertical"
           aria-controls="oryh-chat-panel"
           aria-valuemin={280}
           aria-valuemax={maxChatWidth}
           aria-valuenow={chatWidth}
           tabIndex={0}
-          title="拖动调整 Chat 宽度，双击恢复默认"
+          title={t('chatResizeHint')}
           onPointerDown={e => {
             if (e.button !== 0) return
             e.preventDefault()

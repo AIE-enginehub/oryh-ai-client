@@ -6,10 +6,10 @@
  *
  * The preset itself cannot be reused here: it looks every package up by name in the Harness
  * repository's own `packages/*\/*\/package.json`. So its two rules are mirrored instead. The platform
- * modules (React, Cordis, the client store and slots) are always external; everything the package
- * requests in `dsh.client.external` is external too, so a page plugin shares the frame's one bundle
- * (`@oryh/dsh-client-frame/client`) rather than inlining a second React context of its own;
- * everything else is bundled.
+ * modules (React, Cordis, the client store, slots and primitives) are always external; what a package
+ * requests in `dsh.client.external` is external too — only the frame does, for the gateway's transport;
+ * everything else is bundled, `@oryh/ai-client-kit` included: each plugin carries its own copy, and what
+ * has to be one instance reaches a page through the frame's slot instead of a shared module.
  *
  * Run from the package directory: `node ../../scripts/build-dsh-client.mjs`.
  */
@@ -19,6 +19,8 @@ import { build } from 'esbuild'
 
 /** Mirrors `PLATFORM_MODULES` in Harness's `packages/client/web/src/platform.ts`. */
 const PLATFORM_MODULES = [
+  'zod',
+  '@tanstack/react-virtual',
   'react',
   'react/jsx-runtime',
   'react-dom',

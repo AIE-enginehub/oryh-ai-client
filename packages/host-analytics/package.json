@@ -1,0 +1,66 @@
+{
+  "name": "@oryh/dsh-analytics",
+  "version": "0.1.0",
+  "description": "ORYH chart and editable report plugin over authorized record queries.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
+    },
+    "./model": {
+      "types": "./lib/model.d.ts",
+      "default": "./lib/model.js"
+    }
+  },
+  "files": [
+    "lib/",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts"
+  ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-agent": "link:../../../deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-agent-default-model": "link:../../../deepseek-harness/packages/core/agent-default-model",
+    "@deepseek-ai/dsh-workspace": "link:../../../deepseek-harness/packages/workspace/workspace",
+    "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-session-title": "link:../../../deepseek-harness/packages/session/session-title",
+    "@deepseek-ai/dsh-subagent": "link:../../../deepseek-harness/packages/subagent/subagent",
+    "@deepseek-ai/dsh-llm": "link:../../../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-typert-protocol": "link:../../../deepseek-harness/packages/typert/protocol",
+    "@oryh/ai-client-core": "workspace:*",
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/ai-client-records": "workspace:*",
+    "@oryh/dsh-connection": "workspace:*",
+    "@oryh/dsh-pane": "workspace:*",
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-storage-domain": "link:../../../deepseek-harness/packages/storage/storage-domain"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

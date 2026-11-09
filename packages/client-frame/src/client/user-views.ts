@@ -1,12 +1,7 @@
-import type { ConnectionSummary } from '@oryh/ai-client-core'
+import { noUserViews, type UserViews } from '@oryh/ai-client-kit'
 import type { UserViewSummary } from '@oryh/dsh-pane/types'
-import { useMemo, useSyncExternalStore } from 'react'
-import { columnPreferenceScope } from './column-preferences.js'
 
-/** A user view's page id: the frame store and the menu use it; the Host never sees it. */
-export type UserViewPage = `view:${string}`
-export const userViewPage = (id: string): UserViewPage => `view:${id}`
-export const isUserViewPage = (page: string): page is UserViewPage => /^view:[0-9a-f-]{36}$/.test(page)
+export { isUserViewPage, type UserViewPage, userViewPage, viewGranted } from '@oryh/ai-client-kit'
 
 /**
  * What the page knows of a person's menu entries: a mirror of what the Host last published.
@@ -15,54 +10,82 @@ export const isUserViewPage = (page: string): page is UserViewPage => /^view:[0-
  * writer. Nothing is persisted here — a reload asks the Host again — so there is no second copy to
  * drift. `loaded` separates "no entries" from "not heard yet", which matters on reload: a page restored
  * to `view:<id>` must wait for the list before deciding that entry is gone.
+ *
+ * One per plugin, made when it starts: one mirror per enterprise identity, read by the menu and the
+ * workbench through a hook the renderer makes, so a change shows everywhere at once.
  */
-interface Mirror {
-  views: readonly UserViewSummary[]
-  loaded: boolean
-}
+export class MenuMirror {
+  readonly #mirrors = new Map<string, { state: UserViews; listeners: Set<() => void> }>()
+  readonly #sources = new Map<string, { getSnapshot(): UserViews; subscribe(listener: () => void): () => void }>()
 
-const empty: Mirror = { views: [], loaded: false }
-/** One mirror per enterprise identity, shared by the menu and the workbench so a change shows everywhere at once. */
-const mirrors = new Map<string, { state: Mirror; listeners: Set<() => void> }>()
-
-function mirror(scope: string) {
-  let m = mirrors.get(scope)
-  if (!m) {
-    m = { state: empty, listeners: new Set() }
-    mirrors.set(scope, m)
-  }
-  return m
-}
-
-/**
- * Replace the mirrored entries with what the Host published.
- * @param scope - enterprise identity scope.
- * @param views - the Host's list; undefined leaves the mirror unloaded.
- */
-export function publishUserViews(scope: string, views: readonly UserViewSummary[] | undefined): void {
-  if (views === undefined) return
-  const m = mirror(scope)
-  if (m.state.loaded && JSON.stringify(m.state.views) === JSON.stringify(views)) return
-  m.state = { views, loaded: true }
-  for (const listener of m.listeners) listener()
-}
-
-/** The person's menu entries for this enterprise identity, live. */
-export function useUserViews(connection: ConnectionSummary | undefined) {
-  const scope = connection ? columnPreferenceScope(connection) : ''
-  const store = useMemo(() => {
-    if (!scope) return { subscribe: () => () => {}, getSnapshot: () => empty }
-    const m = mirror(scope)
-    return {
-      subscribe: (listener: () => void) => {
-        m.listeners.add(listener)
-        return () => {
-          m.listeners.delete(listener)
-        }
-      },
-      getSnapshot: () => m.state,
+  #mirror(scope: string) {
+    let m = this.#mirrors.get(scope)
+    if (!m) {
+      m = { state: noUserViews, listeners: new Set() }
+      this.#mirrors.set(scope, m)
     }
-  }, [scope])
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  return { views: state.views, loaded: state.loaded, scope }
+    return m
+  }
+
+  /**
+   * The entries for one enterprise identity, as a source that stays the same object for that identity.
+   * @param scope - enterprise identity scope; the empty scope has no entries and never will.
+   */
+  readonly source = (scope: string) => {
+    let source = this.#sources.get(scope)
+    if (!source) {
+      const m = this.#mirror(scope)
+      source = {
+        getSnapshot: () => m.state,
+        subscribe: listener => {
+          m.listeners.add(listener)
+          return () => {
+            m.listeners.delete(listener)
+          }
+        },
+      }
+      this.#sources.set(scope, source)
+    }
+    return source
+  }
+
+  /**
+   * Replace the mirrored entries with what the Host published.
+   * @param scope - enterprise identity scope.
+   * @param views - the Host's list; undefined leaves the mirror unloaded.
+   * @param sharing - whether the deployment lets colleagues share entries with each other.
+   */
+  publish(scope: string, views: readonly UserViewSummary[] | undefined, sharing = false): void {
+    if (views === undefined || !scope) return
+    const m = this.#mirror(scope)
+    if (
+      m.state.loaded &&
+      (m.state.sharing === true) === sharing &&
+      JSON.stringify(m.state.views) === JSON.stringify(views)
+    )
+      return
+    m.state = { views, loaded: true, ...(sharing ? { sharing } : {}) }
+    for (const listener of m.listeners) listener()
+  }
+
+  /**
+   * Show what the role implies while no session has published the whole menu.
+   *
+   * Partial while a session may still come: the person's own entries live in a session's workspace and
+   * are not among these, so the mirror stays "not heard yet" — a page restored to one of them keeps
+   * waiting instead of being sent home. Where the Host holds no session at all, none is coming — a fresh
+   * workspace has none until the person first writes in Chat — and these are the whole menu until then;
+   * waiting for the rest would leave a restored page blank for good. A whole list a session already
+   * published is not replaced.
+   * @param scope - enterprise identity scope.
+   * @param views - the role's entries.
+   * @param whole - the Host holds no session to publish the rest.
+   */
+  publishRole(scope: string, views: readonly UserViewSummary[], whole = false): void {
+    if (!scope) return
+    const m = this.#mirror(scope)
+    if (m.state.loaded || (!whole && JSON.stringify(m.state.views) === JSON.stringify(views))) return
+    m.state = { views, loaded: whole }
+    for (const listener of m.listeners) listener()
+  }
 }

@@ -1,15 +1,12 @@
 import type { ConnectionId, DeviceAuthorizationId, OperationResultId, SavedOperationId } from './brand.js'
 import type { ConnectionSummary } from './connections.js'
-import type { OryhExpenseClaim, OryhProject, OryhTodo } from './contracts.js'
+import type { OryhTodo } from './contracts.js'
 import type { BeginConnectionView, OryhClientController, PollConnectionView } from './controller.js'
 import type { OperationDefinition, OperationId, OperationResult } from './operations.js'
 import type { SavedOperationView } from './saved-operations.js'
 
 /** One browser-safe result returned by a registered deterministic operation. */
-export type OryhOperationResult =
-  | OperationResult<OryhTodo>
-  | OperationResult<OryhExpenseClaim>
-  | OperationResult<OryhProject>
+export type OryhOperationResult = OperationResult<OryhTodo>
 
 /**
  * Browser-facing ORYH BFF methods. A generated DSH Typert Remote will expose
@@ -17,6 +14,8 @@ export type OryhOperationResult =
  * browser-safe business facts.
  */
 export interface OryhClientRemote {
+  /** Native deployments switch the complete Profile before publishing another enterprise. */
+  activateProfile?(connectionId: ConnectionId): Promise<boolean>
   /** Begin device authorization without returning the private device code. */
   beginConnection(origin: string, clientName: string): Promise<BeginConnectionView>
   /** Poll a pending device authorization retained by the Host. */
@@ -31,6 +30,8 @@ export interface OryhClientRemote {
   listOperations(): Promise<readonly OperationDefinition[]>
   /** Run one fixed ORYH read operation under the selected connection. */
   execute(connectionId: ConnectionId, operationId: OperationId): Promise<OryhOperationResult>
+  /** Read one record of an operation's list by id, as a list of one: a record the list has not loaded can still be opened. */
+  executeOne(connectionId: ConnectionId, operationId: OperationId, id: string): Promise<OryhOperationResult>
   /** Reuse one cached result without calling ORYH or a model. */
   reuse(connectionId: ConnectionId, operationId: OperationId, resultId: OperationResultId): Promise<OryhOperationResult>
   /** Pin one verified operation as a direct, model-free action. */
@@ -84,13 +85,13 @@ export class OryhClientRemoteAdapter implements OryhClientRemote {
     switch (operationId) {
       case 'my-open-todos':
         return this.controller.execute(connectionId, operationId)
-      case 'my-expense-claims':
-        return this.controller.execute(connectionId, operationId)
-      case 'list-projects':
-        return this.controller.execute(connectionId, operationId)
       default:
         return assertNever(operationId)
     }
+  }
+
+  executeOne(connectionId: ConnectionId, operationId: OperationId, id: string): Promise<OryhOperationResult> {
+    return this.controller.executeOne(connectionId, operationId, id) as Promise<OryhOperationResult>
   }
 
   async reuse(
@@ -100,10 +101,6 @@ export class OryhClientRemoteAdapter implements OryhClientRemote {
   ): Promise<OryhOperationResult> {
     switch (operationId) {
       case 'my-open-todos':
-        return this.controller.reuse(connectionId, operationId, resultId)
-      case 'my-expense-claims':
-        return this.controller.reuse(connectionId, operationId, resultId)
-      case 'list-projects':
         return this.controller.reuse(connectionId, operationId, resultId)
       default:
         return assertNever(operationId)

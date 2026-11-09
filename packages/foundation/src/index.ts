@@ -2,5 +2,7 @@
 
 export * from './brand.js'
 export * from './errors.js'
+export * from './governing-rules.js'
 export * from './identity-scope.js'
 export * from './operation.js'
+export * from './write-operation.js'

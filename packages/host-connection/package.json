@@ -37,10 +37,12 @@
     "@deepseek-ai/schemastery": "link:../../../deepseek-harness/vendor/schemastery",
     "@oryh/ai-client-core": "workspace:*",
     "@oryh/ai-client-foundation": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-credentials": "link:../../../deepseek-harness/packages/credentials/credentials"
   },
   "devDependencies": {
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@deepseek-ai/dsh-credentials-local": "link:../../../deepseek-harness/packages/credentials/credentials-local"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",

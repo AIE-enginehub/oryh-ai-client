@@ -26,6 +26,16 @@ interface DeviceStartData {
   readonly prompt: DeviceAuthorizationPrompt
 }
 
+/**
+ * Whether the person who approved a connection may have it here: throws to refuse them.
+ *
+ * A deployment that belongs to one person — the Docker image, whose sign-in gateway lets only its
+ * owner in — had this door behind it: once inside, "connect" asks ORYH for a device approval, and ORYH
+ * binds that to whoever is signed in to it in the browser. Another account's approval was taken, and
+ * the owner's sessions and drafts then ran on that account's ORYH access.
+ */
+export type ConnectionAdmission = (origin: string, identity: ConnectionSummary['identity']) => Promise<void> | void
+
 /** Begins and completes ORYH's device flow without disclosing issued credentials to callers. */
 export class DeviceFlowConnector {
   constructor(
@@ -33,6 +43,7 @@ export class DeviceFlowConnector {
     private readonly credentials: CredentialVault,
     private readonly fetcher: Fetcher,
     private readonly connected: (connection: ConnectionSummary) => Promise<void> = async () => {},
+    private readonly admit: ConnectionAdmission = () => {},
   ) {}
 
   /** Ask ORYH to create a browser approval request. */
@@ -56,6 +67,7 @@ export class DeviceFlowConnector {
       this.credentials,
       this.fetcher,
       this.connected,
+      this.admit,
     )
   }
 }
@@ -71,6 +83,7 @@ export class DeviceConnectionAttempt {
     private readonly credentials: CredentialVault,
     private readonly fetcher: Fetcher,
     private readonly connected: (connection: ConnectionSummary) => Promise<void>,
+    private readonly admit: ConnectionAdmission,
   ) {
     this.prompt = started.prompt
   }
@@ -101,16 +114,45 @@ export class DeviceConnectionAttempt {
       origin: this.origin,
       identity: temporaryIdentity,
     })
-    await this.credentials.write(temporary.id, credential)
     try {
+      await this.credentials.write(temporary.id, credential)
       const client = new OryhHttpClient(this.connections, this.credentials, this.fetcher)
       const identity = decodeIdentity(await client.request(temporary.id, { path: '/auth/me' }))
-      const connection = this.connections.markVerified(temporary.id, identity)
+      // Refused here, the credential just written is removed below with the connection it was for.
+      await this.admit(this.origin, identity)
+      const existing = this.connections
+        .list()
+        .filter(
+          connection =>
+            connection.id !== temporary.id &&
+            connection.origin === this.origin &&
+            connection.identity.user.id === identity.user.id &&
+            connection.identity.tenant.id === identity.tenant.id,
+        )
+        // Older builds could leave several grants for one identity. Repair the
+        // newest one, which is also the workspace's cold-start selection.
+        .sort((a, b) => Date.parse(b.connectedAt) - Date.parse(a.connectedAt))[0]
+      const id = existing?.id ?? temporary.id
+      if (existing) {
+        // Re-signing in after a refused legacy migration repairs the existing
+        // connection, including its chat bindings, instead of leaving a broken
+        // duplicate which would ask for OS access again on the next launch.
+        const latest = await this.credentials.read(temporary.id)
+        if (!latest) throw new OryhClientError('ORYH sign-in could not be saved.', 'credential-store-failed')
+        await this.credentials.write(id, latest)
+        await this.credentials.remove(temporary.id)
+        this.connections.remove(temporary.id)
+      }
+      await this.credentials.bindConnection?.({ ...(existing ?? temporary), identity })
+      const connection = this.connections.markVerified(id, identity)
       await this.connected(connection)
       return { state: 'connected', connection }
     } catch (error) {
-      await this.credentials.remove(temporary.id)
-      this.connections.remove(temporary.id)
+      try {
+        await this.credentials.remove(temporary.id)
+      } finally {
+        this.connections.remove(temporary.id)
+      }
       throw error
     }
   }

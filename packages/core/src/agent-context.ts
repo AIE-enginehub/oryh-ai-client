@@ -1,4 +1,4 @@
-import type { OryhProject, OryhTodo } from './contracts.js'
+import type { OryhTodo } from './contracts.js'
 import type { OperationResult } from './operations.js'
 
 /** JSON-safe summary that may be appended to an AI conversation only on explicit user action. */
@@ -36,27 +36,6 @@ export function agentContextForTodos(
       entityType: todo.entityType,
       entityId: todo.entityId,
       targetTitle: todo.target?.title ?? null,
-    })),
-  }
-}
-
-/** Project a project list into concise model-visible data after explicit user action. */
-export function agentContextForProjects(
-  result: OperationResult<OryhProject>,
-  tenant: { readonly id: string; readonly slug: string },
-): AgentOperationContext {
-  return {
-    source: 'oryh-deterministic-operation',
-    operation: result.operationId,
-    executedAt: result.executedAt,
-    tenant,
-    total: result.result.meta.total,
-    items: result.result.data.map(project => ({
-      id: project.id,
-      code: project.code,
-      name: project.name,
-      client: project.client,
-      status: project.status,
     })),
   }
 }

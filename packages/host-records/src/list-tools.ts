@@ -1,33 +1,103 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { OryhClientError } from '@oryh/ai-client-foundation'
-import { pageById, requirePage } from '@oryh/ai-client-pages'
+import { listPageForCollection, pageById, requirePage } from '@oryh/ai-client-pages'
 import {
   type OryhRecordRemote,
   type ProductOption,
+  type RecordDisplay,
   type RecordKind,
   recordColumns,
   recordSpecs,
 } from '@oryh/ai-client-records'
-import { currentPage, type PaneService, textOutput } from '@oryh/dsh-pane'
+import { currentPage, type PaneService, reveal, SHOW_PARAMETER, textOutput } from '@oryh/dsh-pane'
 import type { UserViewSummary } from '@oryh/dsh-pane/types'
 
 const fail = (text: string) => new OryhClientError(text, 'request-failed')
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-const RECORD_KINDS: readonly RecordKind[] = ['sales-orders', 'inventory-items', 'inventory-item-details', 'shipments']
 
 /**
  * What the agent can do with the lists in the business pane: their display columns, their query
  * bars, and the menu entries a person adds over them. All of it is presentation; none of it writes
  * a business record.
  */
+/** How long a role's menu serves before it is read again: permissions change rarely, and a sign-in resets it. */
+const ROLE_MENU_TTL_MS = 10 * 60_000
+
+/** A stable id for a role entry, shaped like a menu entry's, so the page routes both the same way. */
+function roleViewId(collection: string, filters: Record<string, string>): string {
+  const hex = createHash('sha256')
+    .update(`role|${collection}|${JSON.stringify(filters)}`)
+    .digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
 export class ListTools {
+  /** Each enterprise identity's role menu, read once and republished when it arrives. */
+  private readonly roleMenus = new Map<
+    string,
+    { at: number; views?: UserViewSummary[]; loading?: Promise<UserViewSummary[]> }
+  >()
+
   constructor(
     private readonly ctx: Context,
     private readonly pane: PaneService,
     private readonly records: OryhRecordRemote,
   ) {}
+
+  /**
+   * The menu this session's identity's permissions imply, if it has been read (`records.roleViews`).
+   *
+   * Read in the background the first time a frame asks, and published by asking the pane to send another
+   * frame. A collection a page of this client already shows — its own list, or the narrowing a page
+   * makes of it — is left out, so the role adds what is missing and repeats nothing.
+   * @param sessionId - the bound session.
+   * @returns the entries, or undefined until they have been read once.
+   */
+  roleViews(sessionId: string): UserViewSummary[] | undefined {
+    const session = this.pane.session(sessionId)
+    if (!session) return undefined
+    const known = this.roleMenus.get(session.scope)
+    const fresh = known?.views !== undefined && Date.now() - known.at < ROLE_MENU_TTL_MS
+    if (!fresh && !known?.loading) {
+      const scope = session.scope
+      void this.roleMenu(session.connectionId, scope).then(() => {
+        if (this.pane.session(sessionId)?.scope === scope) this.pane.changed(sessionId)
+      })
+    }
+    return known?.views
+  }
+
+  /**
+   * One enterprise identity's role menu, read at most once per `ROLE_MENU_TTL_MS` whoever asks: a
+   * session's frame, or a workbench with no session open (`PaneService.connectionMenu`).
+   * @param connectionId - a connection of this identity.
+   * @param scope - the identity, as the pane scopes it.
+   * @returns the entries; empty when the menu cannot be built.
+   */
+  roleMenu(connectionId: string, scope: string): Promise<UserViewSummary[]> {
+    const known = this.roleMenus.get(scope)
+    if (known?.views !== undefined && Date.now() - known.at < ROLE_MENU_TTL_MS) return Promise.resolve(known.views)
+    if (known?.loading) return known.loading
+    // Inside the chain, so even a synchronous failure reads as "no role entries": the menu is extra,
+    // and a frame the pane cannot build would take the whole workbench down with it.
+    const loading = Promise.resolve()
+      .then(() => this.records.roleViews(connectionId))
+      .then(
+        views =>
+          views
+            .filter(view => this.pane.pageOf(view.collection) === undefined)
+            .map(view => ({ id: roleViewId(view.collection, view.filters), origin: 'role' as const, ...view })),
+        () => [] as UserViewSummary[],
+      )
+      .then(views => {
+        this.roleMenus.set(scope, { at: Date.now(), views })
+        return views
+      })
+    this.roleMenus.set(scope, { at: known?.at ?? 0, ...(known?.views ? { views: known.views } : {}), loading })
+    return loading
+  }
 
   /** The list page on screen, when it is one of the record lists and shows its list rather than a record. */
   private recordList(sessionId: string) {
@@ -40,7 +110,14 @@ export class ListTools {
   async configureRecordColumns(sessionId: string, columns: string[], signal: AbortSignal): Promise<string> {
     const list = this.recordList(sessionId)
     if (!list) throw fail('请先打开销售订单、库存或收发货列表。')
-    const { kind } = list
+    const { kind, page } = list
+    const captured = this.pane.home(sessionId)
+    const { connection } = await this.pane.verified(sessionId)
+    requirePage(connection.identity, kind)
+    this.pane.assertUnchanged(sessionId, captured, '页面已变化，请重新读取。')
+    if (currentPage(this.pane, sessionId).context?.view?.id !== page.context?.view?.id)
+      throw fail('页面已变化，请重新读取。')
+    const userViewId = page.context?.view?.id
     const allowed = recordColumns(kind)
     if (
       !columns.length ||
@@ -51,11 +128,18 @@ export class ListTools {
       throw fail('列配置无效，请选择当前列表支持的字段，至少保留一列。')
     return this.pane.issue<string>(
       sessionId,
-      { lane: 'navigation', page: kind, payload: { target: 'columns', page: kind, columns }, timeoutMs: 10_000 },
+      {
+        lane: 'navigation',
+        page: kind,
+        payload: { target: 'columns', page: kind, columns, ...(userViewId ? { userViewId } : {}) },
+        timeoutMs: 10_000,
+      },
       id => ({
         invalid: () => {
           const now = this.pane.session(sessionId)
-          return now?.page !== kind || now.context?.key !== `${kind}:list` ? '页面已变化，请重新读取。' : undefined
+          return now?.page !== kind || now.context?.key !== `${kind}:list` || now.context?.view?.id !== userViewId
+            ? '页面已变化，请重新读取。'
+            : undefined
         },
         until: () =>
           this.pane.acked(sessionId, id) && same(this.pane.session(sessionId)?.context?.columns, columns)
@@ -219,31 +303,34 @@ export class ListTools {
   async addUserView(
     sessionId: string,
     label: string,
-    kind: string,
+    collection: string,
     filters: readonly { field: string; value: string }[],
+    columns?: readonly { field: string; label: string }[],
+    titleField?: string,
   ): Promise<string> {
     const home = this.pane.session(sessionId)
     if (!home) throw fail('请先在 Chat 中选择会话并等待已关联。')
-    if (!Object.hasOwn(recordSpecs, kind))
-      throw fail('菜单项只能建在已有列表之上：销售订单、库存余额、库存流水或收发货。')
-    const list = kind as RecordKind
+    if (typeof collection !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(collection))
+      throw fail('集合名称无效：用 ORYH 自己的集合名，例如 sales-order-items。')
     const { connection } = await this.pane.verified(sessionId)
-    requirePage(connection.identity, list)
     const name = String(label ?? '').trim()
     if (!name || name.length > 24) throw fail('菜单名称需为 1–24 个字。')
     if (!Array.isArray(filters) || filters.some(f => typeof f?.field !== 'string' || typeof f?.value !== 'string'))
       throw fail('筛选条件格式无效。')
     const conditions = Object.fromEntries(filters.map(f => [f.field, f.value]))
     if (Object.keys(conditions).length !== filters.length) throw fail('同一字段只能出现一次。')
-    const probe = await this.records.recordList({
+    const display = await this.displayFor(home.connectionId, collection, columns, titleField)
+    // The probe is the only check that this collection exists at all: the deployment answers, not a
+    // list kept here. It also reports how many rows the entry holds, so an empty one is noticed.
+    const probe = await this.records.collectionList({
       connectionId: home.connectionId,
-      kind: list,
+      collection,
       page: 1,
-      query: '',
       filters: conditions,
+      display,
     })
     if (this.pane.session(sessionId)?.scope !== home.scope) throw fail('企业页面已改变。')
-    const view: UserViewSummary = { id: randomUUID(), label: name, kind: list, filters: conditions }
+    const view: UserViewSummary = { id: randomUUID(), label: name, collection, filters: conditions, display }
     const views = await this.pane.userViews.add(sessionId, home.scope, view)
     this.pane.setMenu(sessionId, views)
     return JSON.stringify({
@@ -256,32 +343,105 @@ export class ListTools {
     })
   }
 
+  /**
+   * How a menu entry's list is shown: which field titles a row, and the columns under the names a
+   * person reads.
+   *
+   * The structure is the deployment's — the fields its schema declares for that collection, in the
+   * order the object declares them. The names are the agent's: an OpenAPI document carries
+   * `Product Name Snapshot`, never 产品名称, and what a column should be called in this company's
+   * words is a reading of the business (ADR-0010). A column the agent names over a field the schema
+   * does not have is refused; where the schema declares nothing at all — a route with no response
+   * model — the agent has seen the rows and its columns are taken as given.
+   * @param connectionId - the session's connection.
+   * @param collection - collection as ORYH names it.
+   * @param columns - what the agent asked to show, if anything.
+   * @param titleField - the field whose value titles a row, if the agent chose one.
+   */
+  private async displayFor(
+    connectionId: string,
+    collection: string,
+    columns?: readonly { field: string; label: string }[],
+    titleField?: string,
+  ): Promise<RecordDisplay> {
+    const declared = await this.records.collectionRowFields(connectionId, collection).catch(() => [])
+    const known = new Set(declared.map(f => f.name))
+    if (columns !== undefined) {
+      if (!Array.isArray(columns) || !columns.length) throw fail('列定义格式无效。')
+      // An entry over one of the four built-in lists is drawn by that list, which shows its own columns and
+      // no others. Taken here, a column it lacks was saved, dropped on screen for one nobody asked for, and
+      // the person was asked about it only after the entry existed.
+      if (Object.hasOwn(recordSpecs, collection)) {
+        const shown = recordColumns(collection as RecordKind)
+        const missing = columns.filter(c => !Object.hasOwn(shown, c?.field))
+        if (missing.length)
+          throw fail(
+            `${collection} 的列表只能显示这些列：${Object.keys(shown).join('、')}；${missing.map(c => c?.field).join('、')} 不能作为它的列。菜单项还没有添加：先问用户这些列怎么处理（去掉，或改做自定义页面），再按他的选择添加。`,
+          )
+      }
+      const unknown = columns.filter(c => known.size > 0 && !known.has(c?.field))
+      if (unknown.length)
+        throw fail(
+          `这些字段不在该列表的返回内容里：${unknown.map(c => c?.field).join('、')}。可用字段：${[...known].join('、') || '（该接口未声明返回结构，请先读一页数据再定列）'}。`,
+        )
+      const shown = columns.map(c => ({ field: String(c.field), label: String(c.label || c.field) }))
+      if (new Set(shown.map(c => c.field)).size !== shown.length) throw fail('同一字段只能作为一列。')
+      return {
+        columns: shown,
+        ...(titleField && (known.size === 0 || known.has(titleField)) ? { title: titleField } : {}),
+      }
+    }
+    // Nobody named the columns: show what the rows carry, under the field names, rather than nothing.
+    if (!declared.length) throw fail('该接口没有声明返回结构，请先读一页数据，再带着列名重新添加。')
+    const shown = declared.filter(f => f.name !== 'id').slice(0, 12)
+    return {
+      columns: shown.map(f => ({ field: f.name, label: f.name })),
+      ...(titleField && known.has(titleField) ? { title: titleField } : {}),
+    }
+  }
+
   async removeUserView(sessionId: string, userViewId: string): Promise<string> {
     const home = this.pane.session(sessionId)
     if (!home) throw fail('请先在 Chat 中选择会话并等待已关联。')
+    if (this.roleViews(sessionId)?.some(v => v.id === userViewId))
+      throw fail('这个菜单项来自你在 ORYH 的权限，不能删除；权限变了它会跟着变。')
+    const shared = this.ctx.get('oryhSharedViews')
+    if (shared?.views().some(v => v.id === userViewId))
+      throw fail('这个菜单项是同事共享的，不能删除；共享的人取消共享后它会消失。')
+    const view = (await this.pane.userViews.list(sessionId, home.scope)).find(v => v.id === userViewId)
+    if (!view) throw fail('没有这个菜单项，请先读取当前页面的 userMenu。')
+    // Keep the local entry recoverable if withdrawal fails; the library is the authority, not its cache.
+    const wasShared = await shared?.forget(userViewId, 'menu')
     const removed = await this.pane.userViews.remove(sessionId, home.scope, userViewId)
-    if (!removed) throw fail('没有这个菜单项，请先读取当前页面的 userMenu。')
+    if (!removed) throw fail('菜单项已变化，请重新读取。')
     await this.pane.refreshMenu(sessionId)
-    return `已删除菜单项“${removed.label}”，未修改任何业务记录。`
+    return `已删除菜单项“${removed.label}”${wasShared ? '，同时取消了对同事的共享' : ''}，未修改任何业务记录。`
   }
 
   /** Open a menu entry the person made, and wait until the page shows it. */
-  async openUserView(sessionId: string, userViewId: string, signal: AbortSignal): Promise<string> {
+  async openUserView(sessionId: string, userViewId: string, signal: AbortSignal, show = false): Promise<string> {
     const home = this.pane.session(sessionId)
     if (!home) throw fail('请先在 Chat 中选择会话并等待已关联。')
-    const view = (await this.pane.refreshMenu(sessionId)).find(v => v.id === userViewId)
+    const view =
+      (await this.pane.refreshMenu(sessionId)).find(v => v.id === userViewId) ??
+      this.roleViews(sessionId)?.find(v => v.id === userViewId) ??
+      this.ctx
+        .get('oryhSharedViews')
+        ?.views()
+        .find(v => v.id === userViewId)
     if (!view) throw fail('没有这个菜单项，请先读取当前页面的 userMenu。')
     const { connection } = await this.pane.verified(sessionId)
-    requirePage(connection.identity, view.kind)
     if (this.pane.session(sessionId)?.context?.view?.id === userViewId)
       return JSON.stringify(currentPage(this.pane, sessionId))
-    // The command names the list the entry narrows, so a page sync can tell it apart without a lookup.
+    // The command names the built-in page when the entry narrows one, so a page sync can tell it apart
+    // without a lookup; an entry over any other collection is shown by the generic list.
+    const page = listPageForCollection(view.collection)
     return this.pane.issue<string>(
       sessionId,
       {
         lane: 'navigation',
-        page: view.kind,
-        payload: { target: 'view', page: view.kind, userViewId },
+        page,
+        payload: { target: 'view', page, userViewId, ...reveal(show) },
         timeoutMs: 15_000,
       },
       id => ({
@@ -298,6 +458,18 @@ export class ListTools {
 
   install(): void {
     const { ctx } = this
+    ctx.effect(
+      () =>
+        this.pane.provideState(sessionId => {
+          const roleViews = this.roleViews(sessionId)
+          return roleViews ? { roleViews } : {}
+        }),
+      'oryh role views state',
+    )
+    ctx.effect(
+      () => this.pane.provideMenu((connectionId, scope) => this.roleMenu(connectionId, scope)),
+      'oryh role menu',
+    )
     ctx.tools.register(
       defineTool({
         name: 'oryh_search_products',
@@ -368,14 +540,25 @@ export class ListTools {
       defineTool({
         name: 'oryh_record_filter_fields',
         description:
-          '读取某个列表在当前部署上可以按哪些字段筛选（来自 ORYH 自己的接口说明）。新增菜单项前先调用，只能用这里返回的字段。只读。',
-        parameters: { kind: { type: 'string', required: true, enum: [...RECORD_KINDS] } },
+          '读取某个集合在当前部署上可以按哪些字段筛选、以及它的行有哪些字段（都来自 ORYH 自己的接口说明）。新增菜单项前先调用：筛选只能用 filters 里返回的字段，列只能用 rows 里返回的字段。collection 用 ORYH 自己的集合名（销售订单是 sales-orders，订单项是 sales-order-items）；不确定有哪些集合时，先用 ORYH 的 builtin_object_types 工具查。只读。',
+        parameters: { collection: { type: 'string', required: true } },
         output: textOutput,
         execute: async (args, exec) => {
           if (!exec.agent) throw new Error('需要会话')
           const home = this.pane.session(String(exec.agent.id))
           if (!home) throw fail('请先在 Chat 中选择会话并等待已关联。')
-          return JSON.stringify(await this.records.recordFilterFields(home.connectionId, args.kind as RecordKind))
+          const collection = String(args.collection)
+          const [filters, rows] = await Promise.all([
+            this.records.collectionFilterFields(home.connectionId, collection),
+            this.records.collectionRowFields(home.connectionId, collection).catch(() => []),
+          ])
+          return JSON.stringify({
+            filters,
+            rows,
+            ...(rows.length
+              ? {}
+              : { notice: '这个接口没有声明返回结构，先读一页数据看看行里有哪些字段，再带着列名新增菜单项。' }),
+          })
         },
       }),
     )
@@ -383,10 +566,10 @@ export class ListTools {
       defineTool({
         name: 'oryh_menu_add',
         description:
-          '按用户要求在左侧菜单新增一个菜单项：在已有列表上加服务端筛选条件，并用用户起的名字显示，例如“入库单”= 收发货列表里方向为入库的记录。先用 oryh_record_filter_fields 确认字段，字段取值以 ORYH 的 skill 或接口说明为准，不要猜。只改菜单显示，不修改业务数据；保存在当前会话所在的 workspace。',
+          '按用户要求在左侧菜单新增一个菜单项：显示 ORYH 的某个集合，可加服务端筛选条件，用用户起的名字显示。例如“订单项”= sales-order-items 的全部记录，“入库单”= shipments 里方向为入库的记录。collection 用 ORYH 自己的集合名，不确定时先用 ORYH 的 builtin_object_types 工具查；先用 oryh_record_filter_fields 确认可筛选字段与行字段，字段取值以 ORYH 的 skill 或接口说明为准，不要猜。columns 是要显示的列和列名：列名用用户和这家公司的说法（接口里只有英文字段名），顺序就是显示顺序；不传则按接口声明的字段名显示。只改菜单显示，不修改业务数据；保存在当前会话所在的 workspace。',
         parameters: {
           label: { type: 'string', required: true, description: '用户起的菜单名称，1–24 个字' },
-          kind: { type: 'string', required: true, enum: [...RECORD_KINDS] },
+          collection: { type: 'string', required: true, description: 'ORYH 的集合名，例如 sales-order-items' },
           filters: {
             type: 'array',
             required: true,
@@ -396,11 +579,28 @@ export class ListTools {
               properties: { field: { type: 'string', required: true }, value: { type: 'string', required: true } },
             },
           },
+          columns: {
+            type: 'array',
+            description: '要显示的列，按显示顺序；label 用中文业务说法',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: { field: { type: 'string', required: true }, label: { type: 'string', required: true } },
+            },
+          },
+          titleField: { type: 'string', description: '用哪个字段的值作为每行的标题，默认用编号' },
         },
         output: textOutput,
         execute: async (args, exec) => {
           if (!exec.agent) throw new Error('需要会话')
-          return this.addUserView(String(exec.agent.id), args.label, args.kind, args.filters)
+          return this.addUserView(
+            String(exec.agent.id),
+            args.label,
+            args.collection,
+            args.filters,
+            args.columns,
+            args.titleField,
+          )
         },
       }),
     )
@@ -418,14 +618,53 @@ export class ListTools {
     )
     ctx.tools.register(
       defineTool({
-        name: 'oryh_open_view',
+        name: 'oryh_menu_share',
         description:
-          '打开用户自己添加的菜单项并等待页面回执。userViewId 取自 oryh_current_page 返回的 userMenu。只导航，不写入业务数据。',
-        parameters: { userViewId: { type: 'string', required: true } },
+          '把用户自己添加的菜单项或自己的自定义页面共享给本企业的同事，或取消共享（shared 为 false）。只共享做法（菜单项的集合、筛选条件、显示列；页面的定义），不共享数据：同事打开时各自按自己的 ORYH 权限读。userViewId 取自 oryh_current_page 返回的 userMenu（带 shared: true 的是已共享的），自定义页面用它的页面 id。只有用户明确要求共享或取消共享时才调用。不修改业务数据。',
+        parameters: {
+          userViewId: { type: 'string', required: true },
+          shared: { type: 'boolean', required: true, description: 'true 共享给同事，false 取消共享' },
+        },
         output: textOutput,
         execute: async (args, exec) => {
           if (!exec.agent) throw new Error('需要会话')
-          return this.openUserView(String(exec.agent.id), args.userViewId, exec.signal)
+          return this.ctx.oryhSharedViews.share(String(exec.agent.id), args.userViewId, args.shared === true)
+        },
+      }),
+    )
+    ctx.tools.register(
+      defineTool({
+        name: 'oryh_menu_copy',
+        description:
+          '把同事共享的菜单项或自定义页面复制一份成用户自己的，之后用户可以自己改，与同事的那一份互不影响。sharedViewId 取自 oryh_current_page 返回的 userMenu 里带 sharedBy 的项。复制的是页面时返回 pageId：它还没有数据，要用 oryh_custom_page_run 刷新一次才会出现在菜单里。不修改业务数据。',
+        parameters: { sharedViewId: { type: 'string', required: true } },
+        output: textOutput,
+        execute: async (args, exec) => {
+          if (!exec.agent) throw new Error('需要会话')
+          const copy = await this.ctx.oryhSharedViews.copy(String(exec.agent.id), args.sharedViewId)
+          return JSON.stringify(
+            copy.kind === 'page'
+              ? {
+                  copied: true,
+                  pageId: copy.id,
+                  title: copy.label,
+                  note: '已复制成用户自己的自定义页面；它还没有数据，刷新一次后才会出现在菜单里。',
+                }
+              : { copied: true, userViewId: copy.id, label: copy.label },
+          )
+        },
+      }),
+    )
+    ctx.tools.register(
+      defineTool({
+        name: 'oryh_open_view',
+        description:
+          '打开菜单里的一项并等待页面回执：用户自己添加的，或同事共享的。userViewId 取自 oryh_current_page 返回的 userMenu。只导航，不写入业务数据。',
+        parameters: { userViewId: { type: 'string', required: true }, show: SHOW_PARAMETER },
+        output: textOutput,
+        execute: async (args, exec) => {
+          if (!exec.agent) throw new Error('需要会话')
+          return this.openUserView(String(exec.agent.id), args.userViewId, exec.signal, args.show === true)
         },
       }),
     )

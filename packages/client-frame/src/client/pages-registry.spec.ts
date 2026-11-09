@@ -17,14 +17,14 @@ describe('the page registry', () => {
       changes++
     })
     const removeTodos = pages.register(entry('my-open-todos', 10))
-    pages.register(entry('list-projects', 40))
-    pages.register(entry('timesheets', 30))
-    expect(getSnapshot().pages.map(p => p.page)).toEqual(['my-open-todos', 'timesheets', 'list-projects'])
+    pages.register(entry('inventory-item-details', 40))
+    pages.register(entry('shipments', 30))
+    expect(getSnapshot().pages.map(p => p.page)).toEqual(['my-open-todos', 'shipments', 'inventory-item-details'])
     // A page plugin reloading registers again: one entry per page, the newer one.
-    const later = entry('timesheets', 5)
+    const later = entry('shipments', 5)
     pages.register(later)
-    expect(getSnapshot().pages.map(p => p.page)).toEqual(['timesheets', 'my-open-todos', 'list-projects'])
-    expect(pages.get('timesheets')).toBe(later)
+    expect(getSnapshot().pages.map(p => p.page)).toEqual(['shipments', 'my-open-todos', 'inventory-item-details'])
+    expect(pages.get('shipments')).toBe(later)
     removeTodos()
     expect(pages.get('my-open-todos')).toBeUndefined()
     // A stale disposer, after its entry was replaced, removes nothing.

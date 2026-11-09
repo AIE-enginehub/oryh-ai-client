@@ -226,19 +226,23 @@ const verifiedIdentity = {
 it('freezes a previously verified connection and clears results after identity verification fails', async () => {
   const fetcher = new ScriptedFetcher([
     jsonResponse(200, verifiedIdentity),
+    // The to-do list is two reads: the open ones, then the most recent of the rest.
     jsonResponse(200, { data: [], meta: { total: 0 } }),
+    jsonResponse(200, { data: [], meta: { total: 0 } }),
+    jsonResponse(200, { data: { ...verifiedIdentity.data, id: 'different-user' } }),
     jsonResponse(200, { data: { ...verifiedIdentity.data, id: 'different-user' } }),
   ])
   const fixture = restoredHost(fetcher.fetch)
   const host = await fixture.create()
   await host.verifyConnection(fixture.id)
-  const cached = await host.executeProjects(fixture.id)
+  const cached = await host.executeMyOpenTodos(fixture.id)
   await expect(host.verifyConnection(fixture.id)).rejects.toMatchObject({ code: 'connection-identity-mismatch' })
-  await expect(host.executeProjects(fixture.id)).rejects.toMatchObject({ code: 'connection-verification-required' })
-  await expect(host.reuseProjectResult(fixture.id, cached.id)).rejects.toMatchObject({
+  // A list asks ORYH again before refusing, and the identity is still another's.
+  await expect(host.executeMyOpenTodos(fixture.id)).rejects.toMatchObject({ code: 'connection-identity-mismatch' })
+  await expect(host.reuseTodoResult(fixture.id, cached.id)).rejects.toMatchObject({
     code: 'connection-verification-required',
   })
-  expect(fetcher.calls).toHaveLength(3)
+  expect(fetcher.calls).toHaveLength(5)
 })
 
 it('rejects a pending result after disconnect and leaves no reusable cached data', async () => {
@@ -253,7 +257,8 @@ it('rejects a pending result after disconnect and leaves no reusable cached data
   const fixture = restoredHost(async input => {
     if (input.endsWith('/auth/me')) return jsonResponse(200, verifiedIdentity)
     reads += 1
-    if (reads === 1) return jsonResponse(200, { data: [], meta: { total: 0 } })
+    // The first list's two reads answer; the second list's first read is the one left pending.
+    if (reads <= 2) return jsonResponse(200, { data: [], meta: { total: 0 } })
     return new Promise(resolve => {
       release = resolve
       started()
@@ -261,14 +266,14 @@ it('rejects a pending result after disconnect and leaves no reusable cached data
   })
   const host = await fixture.create()
   await host.verifyConnection(fixture.id)
-  const cached = await host.executeProjects(fixture.id)
-  const pending = host.executeProjects(fixture.id)
+  const cached = await host.executeMyOpenTodos(fixture.id)
+  const pending = host.executeMyOpenTodos(fixture.id)
   const rejected = expect(pending).rejects.toMatchObject({ code: 'connection-not-found' })
   await pendingStarted
   await host.disconnect(fixture.id)
   release(jsonResponse(200, { data: [], meta: { total: 0 } }))
   await rejected
-  await expect(host.reuseProjectResult(fixture.id, cached.id)).rejects.toMatchObject({ code: 'connection-not-found' })
+  await expect(host.reuseTodoResult(fixture.id, cached.id)).rejects.toMatchObject({ code: 'connection-not-found' })
   await expect(fixture.credentials.read(fixture.id)).resolves.toBeUndefined()
   await expect(fixture.store.load()).resolves.toEqual([])
 })
@@ -292,7 +297,7 @@ it('does not restore credentials when a token rotation finishes during disconnec
   })
   const host = await fixture.create()
   await host.verifyConnection(fixture.id)
-  const pending = host.executeProjects(fixture.id)
+  const pending = host.executeMyOpenTodos(fixture.id)
   const rejected = expect(pending).rejects.toMatchObject({ code: 'connection-not-found' })
   await pendingStarted
   const disconnect = host.disconnect(fixture.id)
@@ -301,4 +306,28 @@ it('does not restore credentials when a token rotation finishes during disconnec
   await disconnect
   await rejected
   await expect(fixture.credentials.read(fixture.id)).resolves.toBeUndefined()
+})
+
+it('says ORYH is down when its proxy answers with a page, and lists again once ORYH is back', async () => {
+  // What nginx answers while the ORYH API behind it is stopped: an HTML page, not JSON.
+  const down = {
+    ok: false,
+    status: 502,
+    async json(): Promise<unknown> {
+      throw new SyntaxError(`Unexpected token '<', "<html>" is not valid JSON`)
+    },
+  }
+  const fetcher = new ScriptedFetcher([
+    jsonResponse(200, verifiedIdentity),
+    down,
+    jsonResponse(200, verifiedIdentity),
+    jsonResponse(200, { data: [], meta: { total: 0 } }),
+    jsonResponse(200, { data: [], meta: { total: 0 } }),
+  ])
+  const fixture = restoredHost(fetcher.fetch)
+  const host = await fixture.create()
+  await host.verifyConnection(fixture.id)
+  await expect(host.verifyConnection(fixture.id)).rejects.toThrow('ORYH 服务暂时不可用（HTTP 502）')
+  // ORYH is back: the list verifies again by itself instead of refusing until the page reloads.
+  await expect(host.executeMyOpenTodos(fixture.id)).resolves.toMatchObject({ operationId: 'my-open-todos' })
 })

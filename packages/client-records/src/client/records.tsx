@@ -1,18 +1,22 @@
-import type { BusinessRecord, ProductOption, RecordFilterField, RecordKind, RecordPage } from '@oryh/ai-client-records'
-import { recordColumns, recordDefaultColumns, recordSpecs } from '@oryh/ai-client-records'
 import {
+  AskAi,
   BackToList,
   Button,
   ClearConditionsButton,
+  displayField,
+  displayStatus,
+  displayStatusValue,
   EmptyState,
   ErrorNote,
   Field,
   formatDateTime,
   formatDisplayValue,
   Input,
+  isStatusField,
   ListFooter,
   ListLoading,
   type PageContext,
+  type PageFace,
   PageHeader,
   PreferenceDetails,
   pagePreference,
@@ -23,25 +27,32 @@ import {
   RowOpenCell,
   RowOpenHeader,
   StatusPill,
-  statusLabel,
   statusTone,
+  statusWords,
   textPreference,
   useCommand,
   useServerRefresh,
-  useText,
   useViewPreference,
-} from '@oryh/dsh-client-frame/client'
+  useViewSharing,
+  useWrittenRecords,
+  writtenRowProps,
+} from '@oryh/ai-client-kit'
+import type { BusinessRecord, ProductOption, RecordFilterField, RecordKind, RecordPage } from '@oryh/ai-client-records'
+import { recordColumns, recordDefaultColumns, recordSpecs } from '@oryh/ai-client-records'
 import type { UserViewSummary } from '@oryh/dsh-pane/types'
 import { useEffect, useRef, useState } from 'react'
-import { useRecordsApi } from './api.js'
-import { recordPageLabels } from './catalog.js'
+import type { RecordsApi } from './api.js'
+import { recordPageLabels, rowName, sharedTitles } from './catalog.js'
+import { RecordChildren } from './children.js'
 import { ProductPicker } from './product-picker.js'
+import type { WordKey, Words } from './words.js'
 
-const queryLabels: Record<RecordKind, string> = {
-  'sales-orders': '订单号、名称或客户关键词',
-  'inventory-items': '仓库名称（精确匹配）',
-  'inventory-item-details': '库存项编号（精确匹配）',
-  shipments: '单号、承运商或运单关键词',
+/** What each list's search box is labelled, as a key in this plugin's words. */
+const queryLabels: Record<RecordKind, WordKey> = {
+  'sales-orders': 'searchSalesOrders',
+  'inventory-items': 'searchInventoryItems',
+  'inventory-item-details': 'searchInventoryItemDetails',
+  shipments: 'searchShipments',
 }
 /**
  * One ORYH list, either as a built-in page or as a menu entry the person made.
@@ -52,22 +63,28 @@ const queryLabels: Record<RecordKind, string> = {
  */
 export function RecordPanel({
   kind,
+  active = true,
   view,
   columns,
   onColumns,
-  connectionId,
+  api,
+  face,
+  t,
   onContext,
 }: {
+  active?: boolean
   view?: UserViewSummary
   columns: string[]
   onColumns: (columns: string[]) => void
   kind: RecordKind
-  connectionId: string
+  api: RecordsApi
+  face: PageFace
+  t: Words
   onContext: (value: PageContext) => void
 }) {
+  const connectionId = face.connection.id
   const catalog = recordColumns(kind)
-  const api = useRecordsApi(),
-    text = useText(),
+  const text = face.frame.t,
     callback = useRef(onContext)
   callback.current = onContext
   const scope = view ? `view:${view.id}` : kind,
@@ -76,30 +93,40 @@ export function RecordPanel({
     filterText = view
       ? Object.entries(view.filters)
           .map(([k, v]) => `${k} = ${v}`)
-          .join('，')
+          .join(t('filterJoin'))
       : ''
   const [data, setData] = useState<RecordPage>(),
     [selected, setSelected] = useState<BusinessRecord>(),
-    [page, setPage] = useViewPreference(`${scope}:page`, 1, pagePreference),
-    [query, setQuery] = useViewPreference(`${scope}:query`, '', textPreference),
-    [search, setSearch] = useViewPreference(`${scope}:search`, '', textPreference),
+    [page, setPage] = useViewPreference(face, `${scope}:page`, 1, pagePreference),
+    [query, setQuery] = useViewPreference(face, `${scope}:query`, '', textPreference),
+    [search, setSearch] = useViewPreference(face, `${scope}:search`, '', textPreference),
     [reload, setReload] = useState(0),
     [busy, setBusy] = useState(true),
     [error, setError] = useState('')
-  const [queryFields, setQueryFields] = useViewPreference<string[]>(`${kind}:queryFields`, [], queryFieldsPreference),
-    [products, setProducts] = useViewPreference<ProductOption[]>(`${kind}:products`, [], productPreference),
+  const selection = useRef(selected)
+  selection.current = selected
+  const [queryFields, setQueryFields] = useViewPreference<string[]>(
+      face,
+      `${scope}:queryFields`,
+      [],
+      queryFieldsPreference,
+    ),
+    [products, setProducts] = useViewPreference<ProductOption[]>(face, `${scope}:products`, [], productPreference),
     [appliedProducts, setAppliedProducts] = useViewPreference<ProductOption[]>(
-      `${kind}:appliedProducts`,
+      face,
+      `${scope}:appliedProducts`,
       [],
       productPreference,
     )
   const [values, setValues] = useViewPreference<Record<string, string>>(
-      `${kind}:queryValues`,
+      face,
+      `${scope}:queryValues`,
       {},
       queryValuesPreference,
     ),
     [appliedValues, setAppliedValues] = useViewPreference<Record<string, string>>(
-      `${kind}:appliedQueryValues`,
+      face,
+      `${scope}:appliedQueryValues`,
       {},
       queryValuesPreference,
     )
@@ -128,10 +155,12 @@ export function RecordPanel({
   const searchField = recordSpecs[kind].query
   // The search box already owns its field; product_code is a query this client composes for movements.
   const availableFields: { id: string; label: string; type: RecordFilterField['type'] | 'product' }[] = [
-    ...(kind === 'inventory-item-details' ? [{ id: 'product_code', label: '产品', type: 'product' as const }] : []),
+    ...(kind === 'inventory-item-details'
+      ? [{ id: 'product_code', label: t('productField'), type: 'product' as const }]
+      : []),
     ...(declared ?? [])
       .filter(f => f.name !== searchField)
-      .map(f => ({ id: f.name, label: catalog[f.name] ?? f.name, type: f.type })),
+      .map(f => ({ id: f.name, label: displayField(text, f.name, catalog[f.name] ?? f.name), type: f.type })),
   ]
   const shownFields =
     declared === undefined ? queryFields : queryFields.filter(id => availableFields.some(f => f.id === id))
@@ -142,7 +171,9 @@ export function RecordPanel({
   // After a write made in Chat the list re-reads in place: the rows stay on screen, and an open record
   // stays open with its new values instead of closing as a fresh query would.
   const softReload = useRef(false)
-  useServerRefresh(true, () => {
+  const written = useWrittenRecords(face, kind)
+  const sharing = useViewSharing(face, view)
+  useServerRefresh(face, active, () => {
     softReload.current = true
     setReload(v => v + 1)
   })
@@ -160,11 +191,32 @@ export function RecordPanel({
   }
   // The agent configures the query bar; a menu entry's filters are fixed, so it never applies there.
   useCommand(
+    face,
     'navigation',
     kind,
     command => {
-      if (view || command.target !== 'filters') return false
-      configureFields(command.queryFields ?? [])
+      if (!active || view || command.target !== 'filters') return false
+      // Conditions with no fields named are those of a read the agent made in Chat (docs/56 §23): the
+      // list shows the fields it has for them, beside those already there, and is queried by those
+      // values alone. What this list is not queried by — or not yet known to be — is left out.
+      if (command.queryFields === undefined) {
+        if (declared === undefined) return false
+        const known = Object.fromEntries(
+          Object.entries(command.queryValues ?? {}).filter(([id]) => availableFields.some(f => f.id === id)),
+        )
+        setQueryFields([...new Set([...shownFields, ...Object.keys(known)])])
+        setValues(known)
+        setAppliedValues(known)
+        setProducts([])
+        setAppliedProducts([])
+        // The list's own search box is one of ORYH's parameters too: a read by it is searched the same.
+        const searched = (command.queryValues?.[searchField] ?? '').slice(0, 200)
+        setQuery(searched)
+        setSearch(searched)
+        setPage(1)
+        return true
+      }
+      configureFields(command.queryFields)
       if (command.queryValues !== undefined) {
         setValues(command.queryValues)
         setAppliedValues(command.queryValues)
@@ -181,7 +233,46 @@ export function RecordPanel({
       }
       return true
     },
-    [view, kind],
+    [active, view, kind, declared, shownFields.join(',')],
+  )
+  // The agent opens one record by id — the order it just wrote, the one a todo points at. The list on
+  // screen is a page of what its filters leave and usually does not hold it, so the record is read on its
+  // own and shown as a row of this list would be. A menu entry's list is not this one's to answer for.
+  const opening = useRef<string>(undefined)
+  const [unopened, setUnopened] = useState<string>()
+  useCommand(
+    face,
+    'navigation',
+    kind,
+    (command, issued) => {
+      if (!active || view || command.target !== 'record' || !command.recordId) return false
+      const id = command.recordId
+      if (selected?.id === id) return true
+      // Read and refused: acknowledged, with the reason on the page and in what Chat reads of it.
+      if (unopened === issued.id) return true
+      const row = data?.rows.find(candidate => candidate.id === id)
+      if (row) {
+        setSelected(row)
+        return false
+      }
+      if (opening.current === issued.id) return false
+      opening.current = issued.id
+      void api.recordGet(connectionId, kind, id).then(
+        record => {
+          if (opening.current !== issued.id) return
+          opening.current = undefined
+          setSelected(record)
+        },
+        (reason: unknown) => {
+          if (opening.current !== issued.id) return
+          opening.current = undefined
+          setError(reason instanceof Error ? reason.message : t('recordNotRead'))
+          setUnopened(issued.id)
+        },
+      )
+      return false
+    },
+    [active, view, kind, selected?.id, unopened, data],
   )
   useEffect(() => {
     let live = true
@@ -206,15 +297,26 @@ export function RecordPanel({
               ...(Object.keys(activeValues).length ? { filters: activeValues } : {}),
             }),
       })
-      .then(value => {
+      .then(async value => {
         if (live) {
           setData(value)
-          if (soft) setSelected(current => current && (value.rows.find(row => row.id === current.id) ?? current))
           if (page > Math.max(1, value.pages)) setPage(Math.max(1, value.pages))
+          const id = soft ? selection.current?.id : undefined
+          if (id) {
+            try {
+              const record = value.rows.find(row => row.id === id) ?? (await api.recordGet(connectionId, kind, id))
+              if (live) setSelected(current => (current?.id === id ? record : current))
+            } catch (cause) {
+              if (live && selection.current?.id === id) {
+                setSelected(undefined)
+                setError(cause instanceof Error ? cause.message : t('recordNotRead'))
+              }
+            }
+          }
         }
       })
       .catch(e => {
-        if (live) setError(e instanceof Error ? e.message : '查询失败')
+        if (live) setError(e instanceof Error ? e.message : t('listQueryFailed'))
       })
       .finally(() => {
         if (live) setBusy(false)
@@ -227,16 +329,16 @@ export function RecordPanel({
     callback.current({
       key: `${kind}:${selected?.id ?? 'list'}`,
       title: selected?.title ?? title,
-      detail: [filterText && `筛选：${filterText}`, search].filter(Boolean).join(' · ') || '默认查询',
-      scope: view
-        ? '用户菜单项 · 服务端筛选 · 只读'
-        : appliedProducts.length
-          ? '产品关联查询 · 只读'
-          : '服务端分页 · 只读',
+      detail: filterText
+        ? search
+          ? t('contextFilteredSearch', { filters: filterText, search })
+          : t('contextFiltered', { filters: filterText })
+        : search || t('contextDefaultQuery'),
+      scope: t(view ? 'contextScopeView' : appliedProducts.length ? 'contextScopeProducts' : 'contextScopePaged'),
       ...(view ? { view } : {}),
-      queryFields,
-      queryValues: activeValues,
-      productIds: appliedProducts.map(p => p.id),
+      queryFields: view ? Object.keys(view.filters) : shownFields,
+      queryValues: view ? view.filters : activeValues,
+      productIds: view ? [] : appliedProducts.map(p => p.id),
       columns,
       availableColumns: Object.entries(catalog).map(([id, label]) => ({ id, label })),
       content: JSON.stringify({
@@ -248,7 +350,7 @@ export function RecordPanel({
         query: search,
         productIds: appliedProducts.map(p => p.id),
         queryDraft: { [searchField]: query, products, values },
-        queryValues: activeValues,
+        queryValues: view ? view.filters : activeValues,
         availableQueryFields: availableFields.map(({ id, label, type }) => ({ id, label, type })),
         fetchedAt: data?.fetchedAt,
         selected,
@@ -276,29 +378,50 @@ export function RecordPanel({
   return (
     <section className="business-page oryh-records" aria-busy={busy}>
       {selected ? (
-        <PageHeader back={<BackToList onClick={() => setSelected(undefined)} />} title={selected.title} />
+        <PageHeader
+          back={<BackToList t={text} onClick={() => setSelected(undefined)} />}
+          title={selected.title}
+          actions={<AskAi face={face} question={text('askRecordQuestion')} />}
+        />
       ) : (
-        <PageHeader title={title} actions={<RefreshButton disabled={busy} onClick={() => setReload(v => v + 1)} />} />
+        <PageHeader
+          title={title}
+          {...(sharing.note ? { note: sharing.note } : {})}
+          actions={
+            <>
+              {sharing.action}
+              <RefreshButton t={text} disabled={busy} onClick={() => setReload(v => v + 1)} />
+            </>
+          }
+        />
       )}
+      {!selected && sharing.error}
       {view && !selected && (
-        <p className="data-caption">
-          {listTitle} · 筛选：{filterText}
-        </p>
+        <p className="data-caption">{t('viewCaption', { list: listTitle, filters: filterText })}</p>
       )}
-      {error && <ErrorNote message={error} disabled={busy} onRetry={() => setReload(v => v + 1)} />}
+      {error && <ErrorNote face={face} message={error} disabled={busy} onRetry={() => setReload(v => v + 1)} />}
       {selected ? (
         <div className="surface document-detail">
-          <h2>记录信息</h2>
-          <p className="data-caption">来源：ORYH · 查询时间：{data?.fetchedAt && formatDateTime(data.fetchedAt)}</p>
+          <h2>{t('detailTitle')}</h2>
+          <p className="data-caption">
+            {t('detailSource', { time: data?.fetchedAt ? formatDateTime(data.fetchedAt) : '' })}
+          </p>
           <dl className="document-fields">
             {selected.fields.map(f => (
-              <div key={f.label}>
-                <dt>{f.label}</dt>
-                <dd>{f.label === catalog.status ? statusLabel(f.value) : formatDisplayValue(f.value)}</dd>
+              <div key={f.field ?? f.label}>
+                <dt>{displayField(text, f.field ?? '', f.label)}</dt>
+                <dd>
+                  {f.field !== undefined && isStatusField(f.field)
+                    ? displayStatus(text, f.value)
+                    : formatDisplayValue(f.value)}
+                </dd>
               </div>
             ))}
           </dl>
         </div>
+      ) : null}
+      {selected ? (
+        <RecordChildren api={api} face={face} t={t} collection={kind} id={selected.id} />
       ) : (
         <>
           <section className="surface table-surface">
@@ -313,8 +436,8 @@ export function RecordPanel({
                 setReload(v => v + 1)
               }}
             >
-              <Field label={queryLabels[kind]}>
-                <Input value={query} onChange={(_, d) => setQuery(d.value)} maxLength={200} />
+              <Field label={t(queryLabels[kind])}>
+                <Input value={query} onChange={event => setQuery(event.target.value)} maxLength={200} />
               </Field>
               {!view &&
                 shownFields.map(id => {
@@ -322,34 +445,56 @@ export function RecordPanel({
                   if (!field) return null
                   if (field.type === 'product')
                     return (
-                      <Field key={id} label={`${field.label}（多选）`}>
-                        <ProductPicker connectionId={connectionId} value={products} onChange={setProducts} />
+                      <Field key={id} label={t('fieldMultiple', { label: field.label })}>
+                        <ProductPicker api={api} face={face} t={t} value={products} onChange={setProducts} />
                       </Field>
                     )
                   if (field.type === 'boolean')
                     return (
                       <Field key={id} label={field.label}>
                         <select value={values[id] ?? ''} onChange={e => setValues({ ...values, [id]: e.target.value })}>
-                          <option value="">全部</option>
-                          <option value="true">是</option>
-                          <option value="false">否</option>
+                          <option value="">{t('booleanAll')}</option>
+                          <option value="true">{t('booleanYes')}</option>
+                          <option value="false">{t('booleanNo')}</option>
                         </select>
                       </Field>
                     )
+                  // A state is typed and shown in the words the list shows it in; what goes to ORYH is its
+                  // own value. A tenant's own state, which has no word here, is typed as it is.
+                  if (isStatusField(id))
+                    return (
+                      <Field key={id} label={displayField(text, id, field.label)}>
+                        <Input
+                          value={displayStatus(text, values[id] ?? '')}
+                          maxLength={200}
+                          list={`${kind}-${id}-states`}
+                          placeholder={t('statusPlaceholder')}
+                          onChange={event =>
+                            setValues({ ...values, [id]: displayStatusValue(text, event.target.value) })
+                          }
+                        />
+                        <datalist id={`${kind}-${id}-states`}>
+                          {Object.keys(statusWords).map(status => (
+                            <option key={status} value={displayStatus(text, status)} />
+                          ))}
+                        </datalist>
+                      </Field>
+                    )
                   return (
-                    <Field key={id} label={field.label}>
+                    <Field key={id} label={displayField(text, id, field.label)}>
                       <Input
                         value={values[id] ?? ''}
                         maxLength={200}
-                        onChange={(_, d) => setValues({ ...values, [id]: d.value })}
+                        onChange={event => setValues({ ...values, [id]: event.target.value })}
                       />
                     </Field>
                   )
                 })}
               <Button type="submit" disabled={busy}>
-                查询
+                {t('listQueryButton')}
               </Button>
               <ClearConditionsButton
+                t={text}
                 onClick={() => {
                   setQuery('')
                   setSearch('')
@@ -364,8 +509,8 @@ export function RecordPanel({
             </form>
             <div className="list-configuration">
               {!view && availableFields.length > 0 && (
-                <PreferenceDetails preferenceKey={`${kind}:fieldsOpen`} className="advanced-filters">
-                  <summary>查询字段</summary>
+                <PreferenceDetails face={face} preferenceKey={`${kind}:fieldsOpen`} className="advanced-filters">
+                  <summary>{t('queryFieldsSummary')}</summary>
                   <div className="project-column-options">
                     {availableFields.map(f => (
                       <label key={f.id}>
@@ -378,14 +523,14 @@ export function RecordPanel({
                             )
                           }
                         />
-                        {f.label}
+                        {displayField(text, f.id, f.label)}
                       </label>
                     ))}
                   </div>
                 </PreferenceDetails>
               )}
-              <PreferenceDetails preferenceKey={`${kind}:columnsOpen`} className="advanced-filters">
-                <summary>显示列</summary>
+              <PreferenceDetails face={face} preferenceKey={`${scope}:columnsOpen`} className="advanced-filters">
+                <summary>{t('columnsSummary')}</summary>
                 <div className="project-column-options">
                   {Object.entries(catalog).map(([id, label]) => (
                     <label key={id}>
@@ -395,20 +540,18 @@ export function RecordPanel({
                         disabled={columns.length === 1 && columns.includes(id)}
                         onChange={e => onColumns(e.target.checked ? [...columns, id] : columns.filter(c => c !== id))}
                       />
-                      {label}
+                      {displayField(text, id, label)}
                     </label>
                   ))}
-                  <Button size="small" appearance="subtle" onClick={() => onColumns([...recordDefaultColumns[kind]])}>
-                    恢复默认列
+                  <Button size="sm" variant="ghost" onClick={() => onColumns([...recordDefaultColumns[kind]])}>
+                    {t('columnsReset')}
                   </Button>
                 </div>
               </PreferenceDetails>
             </div>
-            {kind === 'inventory-item-details' && (
-              <p className="data-caption">库存流水为追加记录；默认查询活动库存项，指定库存项编号可查看其历史。</p>
-            )}
+            {kind === 'inventory-item-details' && <p className="data-caption">{t('movementsNote')}</p>}
             {busy ? (
-              <ListLoading />
+              <ListLoading t={text} />
             ) : (
               data && (
                 <div>
@@ -418,18 +561,19 @@ export function RecordPanel({
                         <tr>
                           {columns.map(c => (
                             <th scope="col" key={c}>
-                              {catalog[c]}
+                              {displayField(text, c, catalog[c] ?? c)}
                             </th>
                           ))}
-                          <RowOpenHeader />
+                          <RowOpenHeader t={text} />
                         </tr>
                       </thead>
                       <tbody>
                         {data.rows.map(row => {
+                          const shared = sharedTitles(data.rows)
                           const cell = (c: string) =>
-                            formatDisplayValue(row.fields.find(f => f.label === catalog[c])?.value ?? '—')
+                            formatDisplayValue(row.fields.find(f => f.field === c)?.value ?? '—')
                           return (
-                            <tr key={row.id}>
+                            <tr key={row.id} {...writtenRowProps(text, written.has(row.id))}>
                               {columns.map((c, index) => (
                                 <td key={c}>
                                   {index === 0 ? (
@@ -437,13 +581,22 @@ export function RecordPanel({
                                       {cell(c)}
                                     </button>
                                   ) : c === 'status' && cell(c) !== '—' ? (
-                                    <StatusPill tone={statusTone(cell(c))}>{statusLabel(cell(c))}</StatusPill>
+                                    <StatusPill tone={statusTone(cell(c))}>{displayStatus(text, cell(c))}</StatusPill>
                                   ) : (
                                     cell(c)
                                   )}
                                 </td>
                               ))}
-                              <RowOpenCell title={row.title || cell(columns[0]!)} onOpen={() => setSelected(row)} />
+                              <RowOpenCell
+                                face={face}
+                                title={rowName(
+                                  row,
+                                  columns.map(c => cell(c)),
+                                  shared,
+                                )}
+                                onOpen={() => setSelected(row)}
+                                ask={{ resource: kind, id: row.id }}
+                              />
                             </tr>
                           )
                         })}
@@ -452,10 +605,11 @@ export function RecordPanel({
                   </div>
                   {!data.rows.length && (
                     <EmptyState
+                      t={text}
                       filtered={Boolean(search || view || Object.keys(activeValues).length || appliedProducts.length)}
                     />
                   )}
-                  <ListFooter count={data.total} page={page} pages={data.pages} onPage={setPage} />
+                  <ListFooter t={text} count={data.total} page={page} pages={data.pages} onPage={setPage} />
                 </div>
               )
             )}

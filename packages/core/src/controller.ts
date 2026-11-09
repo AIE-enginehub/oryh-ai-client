@@ -6,11 +6,17 @@ import {
   type SavedOperationId,
 } from './brand.js'
 import type { ConnectionSummary } from './connections.js'
-import type { OryhExpenseClaim, OryhProject, OryhTodo } from './contracts.js'
+import type { OryhTodo } from './contracts.js'
 import type { DeviceAuthorizationPrompt, DeviceConnectionAttempt, DevicePollOutcome } from './device-flow.js'
 import { OryhClientError } from './errors.js'
 import { OryhClientHost } from './host.js'
-import { OPERATIONS, type OperationDefinition, type OperationId, type OperationResult } from './operations.js'
+import {
+  OPERATIONS,
+  type OperationDefinition,
+  type OperationId,
+  type OperationResult,
+  type OperationValue,
+} from './operations.js'
 import { SavedOperationRegistry, type SavedOperationStore, type SavedOperationView } from './saved-operations.js'
 
 /** Host-owned optional dependencies for browser-safe ORYH controller state. */
@@ -96,53 +102,33 @@ export class OryhClientController {
   }
 
   /** Execute one registered read operation under exactly one existing connection. */
-  execute(connectionId: ConnectionId, operationId: 'my-open-todos'): Promise<OperationResult<OryhTodo>>
-  execute(connectionId: ConnectionId, operationId: 'list-projects'): Promise<OperationResult<OryhProject>>
-  execute(connectionId: ConnectionId, operationId: 'my-expense-claims'): Promise<OperationResult<OryhExpenseClaim>>
-  execute(
-    connectionId: ConnectionId,
-    operationId: OperationId,
-  ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
+  execute(connectionId: ConnectionId, operationId: OperationId): Promise<OperationResult<OryhTodo>> {
     switch (operationId) {
       case 'my-open-todos':
         return this.host.executeMyOpenTodos(connectionId)
-      case 'my-expense-claims':
-        return this.host.executeMyExpenseClaims(connectionId)
-      case 'list-projects':
-        return this.host.executeProjects(connectionId)
       default:
         return assertNever(operationId)
     }
   }
 
+  /** Read one record of an operation's list by its id, whether or not the list has loaded it. */
+  executeOne(
+    connectionId: ConnectionId,
+    operationId: OperationId,
+    id: string,
+  ): Promise<OperationResult<OperationValue>> {
+    return this.host.executeOne(connectionId, operationId, id)
+  }
+
   /** Reuse a prior operation result without sending another ORYH request. */
-  reuse(
-    connectionId: ConnectionId,
-    operationId: 'my-open-todos',
-    resultId: OperationResultId,
-  ): Promise<OperationResult<OryhTodo>>
-  reuse(
-    connectionId: ConnectionId,
-    operationId: 'list-projects',
-    resultId: OperationResultId,
-  ): Promise<OperationResult<OryhProject>>
-  reuse(
-    connectionId: ConnectionId,
-    operationId: 'my-expense-claims',
-    resultId: OperationResultId,
-  ): Promise<OperationResult<OryhExpenseClaim>>
   reuse(
     connectionId: ConnectionId,
     operationId: OperationId,
     resultId: OperationResultId,
-  ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
+  ): Promise<OperationResult<OryhTodo>> {
     switch (operationId) {
       case 'my-open-todos':
         return this.host.reuseTodoResult(connectionId, resultId)
-      case 'my-expense-claims':
-        return this.host.reuseExpenseClaimResult(connectionId, resultId)
-      case 'list-projects':
-        return this.host.reuseProjectResult(connectionId, resultId)
       default:
         return assertNever(operationId)
     }
@@ -164,12 +150,6 @@ export class OryhClientController {
       case 'my-open-todos':
         await this.host.reuseTodoResult(connectionId, resultId)
         break
-      case 'my-expense-claims':
-        await this.host.reuseExpenseClaimResult(connectionId, resultId)
-        break
-      case 'list-projects':
-        await this.host.reuseProjectResult(connectionId, resultId)
-        break
       default:
         return assertNever(operationId)
     }
@@ -189,16 +169,12 @@ export class OryhClientController {
   async refreshSavedOperation(
     connectionId: ConnectionId,
     savedOperationId: SavedOperationId,
-  ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
+  ): Promise<OperationResult<OryhTodo>> {
     await this.#ready
     const saved = this.#savedOperations.require(connectionId, savedOperationId)
     switch (saved.operationId) {
       case 'my-open-todos':
         return this.host.executeMyOpenTodos(connectionId)
-      case 'my-expense-claims':
-        return this.host.executeMyExpenseClaims(connectionId)
-      case 'list-projects':
-        return this.host.executeProjects(connectionId)
       default:
         return assertNever(saved.operationId)
     }

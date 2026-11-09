@@ -5,14 +5,22 @@ services:
       context: ..
       dockerfile: oryh-ai-client/deploy/local/Dockerfile
     ports:
-      - "127.0.0.1:4180:4173"
+      # ORYH_CLIENT_PORT runs a second client beside the first, e.g. another branch on 4181.
+      - "127.0.0.1:${ORYH_CLIENT_PORT:-4180}:4173"
     environment:
+      # The addresses a browser may open this client at. Two clients on one machine should be opened
+      # under different host names — 127.0.0.1 for one, localhost for the other — because a browser
+      # keeps one set of cookies per host name whatever the port.
+      ORYH_PUBLIC_HOSTS: 127.0.0.1:${ORYH_CLIENT_PORT:-4180},localhost:${ORYH_CLIENT_PORT:-4180}
+      # Overridable for a local ORYH, e.g. http://host.docker.internal:18081 (docs/49 §2.3).
       ORYH_SERVER_ORIGIN: ${ORYH_SERVER_ORIGIN:?set ORYH_SERVER_ORIGIN in .env}
       # One model for everyone using this deployment; set these in .env next to this file (see .env.example).
       DEEPSEEK_API_KEY: ${ORYH_MODEL_API_KEY:?set ORYH_MODEL_API_KEY in .env}
       DEEPSEEK_BASE_URL: ${ORYH_MODEL_BASE_URL:-https://api.deepseek.com}
       ORYH_MODEL: ${ORYH_MODEL:-deepseek-v4-flash}
       ORYH_MODEL_REASONING_EFFORT: ${ORYH_MODEL_REASONING_EFFORT:-high}
+      # Where the Host keeps time while no browser has said (the container itself runs in UTC); optional.
+      ORYH_TIME_ZONE: ${ORYH_TIME_ZONE:-}
     volumes:
       - client-data:/home/node
     healthcheck:

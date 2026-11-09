@@ -2,16 +2,16 @@
 
 import { RemoteStream, RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
 import type { ConnectionId } from '@oryh/ai-client-foundation'
+import type { PaneStreamHandle, PaneStreamState } from '@oryh/ai-client-kit'
 import type { AnyPaneCommand, PaneFrame } from '@oryh/dsh-pane/types'
 import { describe, expect, it } from 'vitest'
-import type { PaneStreamHandle, PaneStreamState } from './pane-stream.js'
 import { createFrameRemote } from './remote.js'
 
 const navigation: AnyPaneCommand = {
   lane: 'navigation',
   id: 'n1',
-  page: 'timesheets',
-  payload: { target: 'timesheet', page: 'timesheets' },
+  page: 'shipments',
+  payload: { target: 'page', page: 'shipments' },
   expiresAt: Date.now() + 60_000,
 }
 const baseline = (commands: AnyPaneCommand[]): PaneFrame => ({ type: 'baseline', commands, state: {} })
@@ -45,7 +45,7 @@ function fakeRemote(generations: Generation): { handle: PaneStreamHandle; opens:
     $stream: (options: unknown) => new RemoteStream(connection as never, options as never),
     oryhPane: { paneCommands: (_request: unknown, signal: AbortSignal) => generations(attempt++, signal) },
   }
-  const api = createFrameRemote(remote as never)
+  const api = createFrameRemote(remote as never, () => 'Chat 指令同步已中断。')
   return {
     handle: api.openPane({ sessionId: 's', connectionId: 'c' as ConnectionId }),
     opens: () => attempt,

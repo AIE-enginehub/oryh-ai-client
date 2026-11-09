@@ -10,11 +10,13 @@ import type {
   SkillRefreshResult,
 } from '@oryh/ai-client-core'
 import { OryhClientRemoteAdapter } from '@oryh/ai-client-core'
+import { activateDesktopProfile } from './desktop-profile.js'
 import { RemoteCalls } from './remote-calls.js'
 import type {
   AuthorizationRequest,
   ConnectionRequest,
   ConnectRequest,
+  OperationRecordRequest,
   OperationRequest,
   ResultRequest,
   SavedRequest,
@@ -47,10 +49,23 @@ export class ConnectionRemote extends TypertRemoteService {
    * the deployment signed them in — so the workbench offers one way out instead of connecting and
    * disconnecting local credentials, and follows this path to take it.
    */
-  @Remote('connectionDefaults') connectionDefaults(): { origin: string; signOut?: string } {
-    const signOut = this.ctx.get('oryhManagedSignOut')
+  @Remote('connectionDefaults') connectionDefaults(): {
+    origin: string
+    signOut?: string
+    switchAccount?: string
+    activeConnectionId?: string
+  } {
+    const managed = this.ctx.get('oryhManagedSignOut')
+    // A single-user container whose login gateway lets its person hand it to another account of theirs
+    // (deploy/local): the workbench offers that page instead of connecting a second account, which the
+    // container's owner check refuses.
+    const signOut = {
+      ...(process.env.ORYH_DESKTOP_CONNECTION_ID ? { activeConnectionId: process.env.ORYH_DESKTOP_CONNECTION_ID } : {}),
+      ...(managed ? { signOut: managed } : {}),
+      ...(process.env.ORYH_ACCOUNT_SWITCH === '1' ? { switchAccount: '/oryh/switch' } : {}),
+    }
     const value = process.env.ORYH_SERVER_ORIGIN?.trim()
-    if (!value) return { origin: '', ...(signOut ? { signOut } : {}) }
+    if (!value) return { origin: '', ...signOut }
     const url = new URL(value)
     if (
       !['http:', 'https:'].includes(url.protocol) ||
@@ -62,7 +77,14 @@ export class ConnectionRemote extends TypertRemoteService {
     ) {
       throw new Error('ORYH_SERVER_ORIGIN must be an HTTP(S) origin without credentials or a path')
     }
-    return { origin: url.origin, ...(signOut ? { signOut } : {}) }
+    return { origin: url.origin, ...signOut }
+  }
+  /** Verify before any native Profile selection; the browser supplies only an opaque connection id. */
+  @Remote('activateProfile') activateProfile(request: ConnectionRequest): Promise<boolean> {
+    return this.calls.call(async () => {
+      await this.ctx.oryhClient.verifyConnection(request.connectionId)
+      return activateDesktopProfile(request.connectionId)
+    })
   }
   @Remote('listConnections') listConnections(): Promise<readonly ConnectionSummary[]> {
     return this.calls.call(() => this.ctx.oryhClient.listConnections())
@@ -84,6 +106,10 @@ export class ConnectionRemote extends TypertRemoteService {
   }
   @Remote('execute') execute(request: OperationRequest): Promise<OryhOperationResult> {
     return this.calls.call(() => this.api.execute(request.connectionId, request.operationId))
+  }
+  /** One record of a list by id, for a page asked to open a record its list has not loaded. */
+  @Remote('executeOne') executeOne(request: OperationRecordRequest): Promise<OryhOperationResult> {
+    return this.calls.call(() => this.api.executeOne(request.connectionId, request.operationId, request.id))
   }
   @Remote('reuse') reuse(request: ResultRequest): Promise<OryhOperationResult> {
     return this.calls.call(() => this.api.reuse(request.connectionId, request.operationId, request.resultId))

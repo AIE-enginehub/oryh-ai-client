@@ -37,6 +37,10 @@ export interface AuthorizationRequest {
 export interface OperationRequest extends ConnectionRequest {
   operationId: OperationId
 }
+/** One record of an operation's list, by id. */
+export interface OperationRecordRequest extends OperationRequest {
+  id: string
+}
 export interface ResultRequest extends OperationRequest {
   resultId: OperationResultId
 }

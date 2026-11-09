@@ -41,9 +41,8 @@ if (!new RegExp(baseline.artifactFingerprint).test(readFileSync(executing, 'utf8
   problems.push([
     `the built generator at ${executing} does not contain the external-plugin protocol fix`,
     'Apply the patch and REBUILD DSH — patching the source alone is not enough, because the',
-    'generator runs from its built output:',
-    `  git -C ${harnessRoot} apply ${patch}`,
-    `  pnpm -C ${harnessRoot} build`,
+    'generator runs from its built output. One command does both:',
+    '  pnpm run harness:setup',
   ])
 }
 

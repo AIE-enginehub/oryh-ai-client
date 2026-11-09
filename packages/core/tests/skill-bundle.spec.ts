@@ -6,7 +6,15 @@ import type { ConnectionId } from '../src/brand.js'
 import { resolveEntry, SkillBundleService } from '../src/skill-bundle.js'
 
 const connectionId = 'c' as ConnectionId
-const manifest = [{ name: 'oryh-timesheet-submit', version: '3', hash: 'h3' }]
+/** One row of `/my/skills/manifest`, as ORYH answers it. */
+const row = (version: number, hash: string) => ({
+  name: 'oryh-timesheet-submit',
+  installed_as: 'oryh-timesheet-submit',
+  title: '工时填报',
+  version,
+  files_hash: hash,
+})
+const manifest = [row(3, 'h3')]
 type Skills = Record<string, Record<string, string>>
 
 /**
@@ -81,6 +89,46 @@ describe('ORYH skills over MCP', () => {
     expect(server.calls.filter(call => call === 'prompts/get')).toHaveLength(before)
     // An explicit refresh still fetches everything again.
     expect((await service.sync(connectionId, true)).installed).toBe(true)
+  })
+
+  it('installs again when a skill was rewritten on the server under the same name', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
+    const skills: Skills = { 'oryh-timesheet-submit': { 'SKILL.md': 'read /workflow-definitions' } }
+    const entries: unknown[] = [row(3, 'h3')]
+    const service = new SkillBundleService(oryh(skills, entries).client, root)
+    expect((await service.sync(connectionId)).installed).toBe(true)
+    expect((await service.sync(connectionId)).installed).toBe(false)
+
+    // The server replaces the skill's text: the same name, the next version, another hash.
+    skills['oryh-timesheet-submit'] = { 'SKILL.md': 'read /business-rules' }
+    entries[0] = row(4, 'h4')
+    expect((await service.sync(connectionId)).installed).toBe(true)
+    expect(await readFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'utf8')).toBe('read /business-rules')
+    expect(JSON.parse(await readFile(join(root, '.oryh-manifest.json'), 'utf8')).manifest).toEqual([
+      { name: 'oryh-timesheet-submit', version: '4', hash: 'h4' },
+    ])
+    // A hash moving by itself is enough.
+    entries[0] = row(4, 'h5')
+    expect((await service.sync(connectionId)).installed).toBe(true)
+  })
+
+  it('installs once more over a record that kept names only, as every install before this did', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
+    const server = oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'current' } })
+    await mkdir(join(root, 'oryh-timesheet-submit'), { recursive: true })
+    await writeFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'stale')
+    await writeFile(
+      join(root, '.oryh-manifest.json'),
+      JSON.stringify({
+        delivery: 'mcp',
+        manifest: [{ name: 'oryh-timesheet-submit' }],
+        installed: ['oryh-timesheet-submit'],
+      }),
+    )
+    const service = new SkillBundleService(server.client, root)
+    expect((await service.sync(connectionId)).installed).toBe(true)
+    expect(await readFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'utf8')).toBe('current')
+    expect((await service.sync(connectionId)).installed).toBe(false)
   })
 
   it('replaces skills a bundle installed, even under an unchanged manifest, because their files carry the key', async () => {

@@ -2,7 +2,7 @@ import type { ConnectionId } from './brand.js'
 import type { ConnectionRegistry } from './connections.js'
 import type { CredentialPair, CredentialVault } from './credentials.js'
 import { OryhClientError } from './errors.js'
-import type { OryhOperation } from './server-operation.js'
+import { idempotencyHeaders, type OryhOperation } from './server-operation.js'
 
 /** A minimal fetch response seam, small enough to replace in tests or DSH Host adapters. */
 export interface FetchResponse {
@@ -25,6 +25,11 @@ export interface OryhRequest {
   readonly retryExpired?: boolean
   /** On the server: how this write was confirmed, for the control process to admit and record it. */
   readonly operation?: OryhOperation
+  /**
+   * This one call's cancellation — the tool call or turn it belongs to was stopped. Never sent: it ends
+   * the request here, beside the connection's lifetime and the timeout, and nothing is sent after it fires.
+   */
+  readonly signal?: AbortSignal
 }
 
 /** Host-local timings that govern when an interactive credential is refreshed. */
@@ -123,10 +128,19 @@ export class OryhHttpClient {
 
   /** Call a versioned ORYH API endpoint inside one existing connection scope. */
   async request(connectionId: ConnectionId, request: OryhRequest): Promise<unknown> {
+    return (await this.exchange(connectionId, request)).body
+  }
+
+  /**
+   * The same call, answering ORYH's success status beside the body, for the endpoints whose status says
+   * something of its own: an upload answers 200 when it already held these bytes and 201 when it did not.
+   */
+  async exchange(connectionId: ConnectionId, request: OryhRequest): Promise<DelegatedResponse> {
+    request.signal?.throwIfAborted()
     this.assertOpen(connectionId)
     if (this.options.delegated) {
       const answer = await this.delegate(connectionId, request)
-      if (answer.status >= 200 && answer.status < 300) return answer.body
+      if (answer.status >= 200 && answer.status < 300) return answer
       throw requestError({ ok: false, status: answer.status, json: async () => answer.body }, answer.body, request.path)
     }
     const connection = this.connections.require(connectionId)
@@ -135,19 +149,22 @@ export class OryhHttpClient {
       credential = await this.refreshCredential(connectionId, connection.origin, credential)
     }
     this.assertOpen(connectionId)
+    // Reading or refreshing the credential took time; a call stopped meanwhile sends nothing.
+    request.signal?.throwIfAborted()
     const first = await this.send(connectionId, connection.origin, request, credential.accessKey)
-    const firstBody = first.status === 204 ? {} : await first.json()
+    const firstBody = await bodyOf(first)
     this.assertOpen(connectionId)
-    if (first.ok) return firstBody
+    if (first.ok) return { status: first.status, body: firstBody }
     if (!expiredKey(first, firstBody) || request.retryExpired === false)
       throw requestError(first, firstBody, request.path)
 
     const refreshed = await this.refreshCredential(connectionId, connection.origin, credential)
     this.assertOpen(connectionId)
+    request.signal?.throwIfAborted()
     const second = await this.send(connectionId, connection.origin, request, refreshed.accessKey)
-    const secondBody = second.status === 204 ? {} : await second.json()
+    const secondBody = await bodyOf(second)
     this.assertOpen(connectionId)
-    if (second.ok) return secondBody
+    if (second.ok) return { status: second.status, body: secondBody }
     throw requestError(second, secondBody, request.path)
   }
 
@@ -158,11 +175,13 @@ export class OryhHttpClient {
    */
   private async delegate(connectionId: ConnectionId, request: OryhRequest): Promise<DelegatedResponse> {
     const delegated = this.options.delegated!
-    const signal = AbortSignal.any([delegated.signal, this.requestSignal(connectionId)])
+    const signal = this.callSignal(connectionId, request, delegated.signal)
     let answer: DelegatedResponse
     try {
       answer = await delegated.send(request, signal)
     } catch (error) {
+      // Stopped by its own caller: that is what it reports, not a failed request.
+      request.signal?.throwIfAborted()
       if (error instanceof OryhClientError && !signal.aborted) throw error
       throw new OryhClientError('Server business request failed or authorization ended.', 'request-failed')
     }
@@ -199,9 +218,16 @@ export class OryhHttpClient {
     return AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
   }
 
+  /** A request's whole lifetime: its connection's, the timeout, and the call's own when it has one. */
+  private callSignal(connectionId: ConnectionId, request: OryhRequest, ...others: AbortSignal[]): AbortSignal {
+    return AbortSignal.any([this.requestSignal(connectionId), ...others, ...(request.signal ? [request.signal] : [])])
+  }
+
   /** Read one whole credential bundle or fail before a request exposes an absent connection. */
-  private async requireCredential(connectionId: ConnectionId): Promise<CredentialPair> {
-    const credential = await this.credentials.read(connectionId)
+  private async requireCredential(connectionId: ConnectionId, fresh = false): Promise<CredentialPair> {
+    const credential = await (fresh && this.credentials.readFresh
+      ? this.credentials.readFresh(connectionId)
+      : this.credentials.read(connectionId))
     if (credential === undefined) {
       throw new OryhClientError('The ORYH connection has no credential.', 'authentication-failed')
     }
@@ -223,7 +249,7 @@ export class OryhHttpClient {
     if (active !== undefined) return active
 
     const refresh = (async () => {
-      const current = await this.requireCredential(connectionId)
+      const current = await this.requireCredential(connectionId, true)
       if (!sameCredential(current, observed)) return current
       const refreshed = await this.refresh(connectionId, origin, current.refreshToken)
       this.assertOpen(connectionId)
@@ -274,12 +300,13 @@ export class OryhHttpClient {
     accessKey: string,
   ): Promise<FetchResponse> {
     return this.fetcher(request.root ? `${origin}${request.path}` : apiPath(origin, request.path), {
-      signal: this.requestSignal(connectionId),
+      signal: this.callSignal(connectionId, request),
       method: request.method ?? 'GET',
       redirect: 'error',
       headers: {
         'X-API-Key': accessKey,
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...idempotencyHeaders(request.operation),
       },
       ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
     })
@@ -293,11 +320,12 @@ export class OryhHttpClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     })
-    const body = await response.json()
+    // The status says what happened; a failed refresh may answer with HTML or no body at all, and parsing
+    // that first turned a plain 502 into a SyntaxError the caller could not explain.
     if (!response.ok) {
       throw new OryhClientError('ORYH credential refresh failed.', 'refresh-failed', response.status)
     }
-    return asCredential(body)
+    return asCredential(await response.json())
   }
 }
 
@@ -324,33 +352,42 @@ function refreshAheadMs(value: number | undefined): number {
   return resolved
 }
 
-function requestError(response: FetchResponse, body: unknown, path?: string): OryhClientError {
-  // Recognize only this endpoint's documented conflict shapes. Never echo server detail.
-  if (response.status === 409 && path?.split('?')[0] === '/timesheet-headers') {
-    const detail = errorDetail(body) ?? ''
-    const id = '[0-9a-fA-F-]{36}',
-      date = '[0-9]{4}-[0-9]{2}-[0-9]{2}'
-    if (
-      new RegExp(`^timesheet header ${id} already covers period ${date}\\.\\.${date} for employee ${id}$`).test(detail)
-    ) {
-      return new OryhClientError(
-        '您在这个起止日期范围内已有工时单，不能重复新建。请到“我的工时”查看现有单据；如需补充工时，请修改现有单据的明细。当前填写内容仍保留。',
-        'timesheet-conflict',
-        409,
-      )
-    }
-    if (
-      new RegExp(
-        `^deleted timesheet header ${id} still holds period ${date}\\.\\.${date} for employee ${id}; restore it instead of recreating$`,
-      ).test(detail)
-    ) {
-      return new OryhClientError(
-        '这个起止日期范围内已有被删除的工时单，仍占用该期间。请联系管理员恢复原单据后继续处理。当前填写内容仍保留。',
-        'timesheet-conflict',
-        409,
-      )
-    }
+/**
+ * What ORYH answered. A proxy in front of a stopped ORYH answers with its own HTML page; parsed as JSON it
+ * surfaced as "Unexpected token '<'", which read to the agent as a broken tool rather than ORYH being down.
+ */
+async function bodyOf(response: FetchResponse): Promise<unknown> {
+  if (response.status === 204 || response.status === 413) return {}
+  try {
+    return await response.json()
+  } catch {
+    throw response.ok
+      ? new OryhClientError('ORYH 返回了无法识别的内容。', 'invalid-response', response.status)
+      : unavailable(response.status)
   }
+}
+
+/** ORYH, or the proxy in front of it, could not answer at all: nothing about the request itself. */
+const unavailable = (status: number) =>
+  new OryhClientError(`ORYH 服务暂时不可用（HTTP ${status}），请稍后重试。`, 'request-failed', status)
+
+function requestError(response: FetchResponse, body: unknown, path?: string): OryhClientError {
+  if (response.status === 413 && path === '/attachments')
+    return new OryhClientError(
+      '附件上传被服务端或网关拒绝（HTTP 413：请求体过大）。原文件允许最大 10 MB；文件未超限时，请联系管理员检查上传链路限制。',
+      'request-failed',
+      413,
+    )
+  if (response.status === 502 || response.status === 503 || response.status === 504) return unavailable(response.status)
+  // ORYH's refusal is now the only thing between a person and a list they may not read — this client keeps
+  // no entry rules of its own — so it is said in words a person can act on. Server detail is still not
+  // echoed: it is untrusted response data.
+  if (response.status === 403)
+    return new OryhClientError(
+      'ORYH 没有允许当前账号读取或办理这项内容（HTTP 403）。权限由 ORYH 的管理员设置。',
+      'request-failed',
+      403,
+    )
   return new OryhClientError(
     // Server detail may be useful to a person but is untrusted response data;
     // never promote it into a broadly logged local error where a proxy or

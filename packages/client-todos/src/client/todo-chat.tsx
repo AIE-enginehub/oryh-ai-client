@@ -1,89 +1,113 @@
-import type { ConnectionId } from '@oryh/ai-client-foundation'
-import type { TodoDocument } from '@oryh/ai-client-todos'
 import {
-  BusinessSessionContext,
   Button,
+  displayField,
+  displaySection,
+  displayStatus,
+  fieldLabelFor,
   formatDateTime,
   formatDisplayValue,
-  statusLabel,
+  type PageFace,
+  StatusPill,
+  sectionLabel,
   usePane,
   useServerRefresh,
-} from '@oryh/dsh-client-frame/client'
-import { useContext, useEffect, useState } from 'react'
-import { useTodosApi } from './api.js'
+} from '@oryh/ai-client-kit'
+import type { TodoDocument } from '@oryh/ai-client-todos'
+import { useEffect, useState } from 'react'
+import type { TodosApi } from './api.js'
+import type { WordKey, Words } from './words.js'
 
-const names: Record<string, string> = {
-  todo: '待办',
-  sales_quotation: '销售报价',
-  purchase_request: '采购申请',
-  purchase_order: '采购订单',
-  sales_order: '销售订单',
-  timesheet_header: '工时单',
-  expense_claim: '费用单',
-  quotation: '报价',
-  request: '申请',
-  po: '采购订单',
-  order: '订单',
-  header: '单据',
-  claim: '费用',
-  items: '明细',
-  entries: '明细',
-  approval_records: '审批记录',
-  product: '产品',
-  sku: '规格',
-  adjustments: '价格调整',
-  id: '编号',
-  employee_id: '员工编号',
-  title: '标题',
-  description: '说明',
-  status: '状态',
-  entity_type: '关联类型',
-  entity_id: '关联编号',
-  quote_number: '报价编号',
-  revision_no: '版本',
-  currency: '币种',
-  total_amount: '单据总额',
-  computed_total: '明细合计',
-  adjusted_total: '调整后合计',
-  adjustments_total: '调整金额',
-  estimated_total: '估算合计',
-  unpriced_item_count: '未定价明细数',
-  pending_sku_count: '未定规格明细数',
-  customer_name_snapshot: '客户',
-  vendor_name_snapshot: '供应商',
-  quantity: '数量',
-  unit_price: '单价',
-  list_price: '目录价格',
-  amount: '金额',
-  name: '名称',
-  product_name_snapshot: '产品',
-  spec: '规格',
-  unit: '单位',
-  notes: '备注',
-  task: '工作任务',
-  hours: '小时',
-  payment_terms: '付款条件',
-  delivery_terms: '交付条件',
-  quote_date: '报价日期',
-  valid_until: '有效期至',
-  submitted_at: '提交时间',
-  created_at: '创建时间',
-  updated_at: '更新时间',
-  round_no: '审批轮次',
-  sequence_no: '审批节点',
-  action: '审批动作',
-  comment: '审批意见',
-  approver_id: '审批人',
-  acted_at: '审批时间',
-  remarks: '备注',
-  source_report_text: '原始说明',
+// The names this page alone has a word for, by the key of that word in this plugin's list.
+const names: Record<string, WordKey> = {
+  todo: 'nameTodo',
+  sales_quotation: 'nameSalesQuotation',
+  purchase_request: 'namePurchaseRequest',
+  purchase_order: 'namePurchaseOrder',
+  sales_order: 'nameSalesOrder',
+  timesheet_header: 'nameTimesheetHeader',
+  expense_claim: 'nameExpenseClaim',
+  employee_leave: 'nameEmployeeLeave',
+  business_object: 'nameBusinessObject',
+  leave_type: 'nameLeaveType',
+  from_date: 'nameFromDate',
+  thru_date: 'nameThruDate',
+  duration_days: 'nameDurationDays',
+  quotation: 'nameQuotation',
+  request: 'nameRequest',
+  po: 'namePo',
+  order: 'nameOrder',
+  header: 'nameHeader',
+  claim: 'nameClaim',
+  product: 'nameProduct',
+  sku: 'nameSku',
+  id: 'nameId',
+  employee_id: 'nameEmployeeId',
+  title: 'nameTitle',
+  description: 'nameDescription',
+  entity_type: 'nameEntityType',
+  entity_id: 'nameEntityId',
+  unpriced_item_count: 'nameUnpricedItemCount',
+  pending_sku_count: 'namePendingSkuCount',
+  list_price: 'nameListPrice',
+  name: 'nameName',
+  notes: 'nameNotes',
+  task: 'nameTask',
+  hours: 'nameHours',
+  source_report_text: 'nameSourceReportText',
 }
-const label = (key: string) => {
+/**
+ * What a name on this page is called. The words this page alone has — a kind of document, a field only
+ * its documents carry — come first; every other name takes the workbench's shared word, the one the
+ * lists and the agent use, and where the document has a page of its own, that page's word for it: a sales
+ * order's total is 订单总额 here as it is on the order list. Only what nobody named shows as the API has it.
+ * @param t - this plugin's words.
+ * @param objectType - the kind of document the name is on.
+ */
+const labelFor = (t: Words, objectType: string, ui: PageFace['frame']['t']) => (key: string) => {
   const [name, ...suffix] = key.split(' ')
-  return [names[name!] ?? name, ...suffix].join(' ')
+  const own = fieldLabelFor(objectType, name!)
+  const word = names[name!]
+  const label = word
+    ? t(word)
+    : own !== name
+      ? displayField(ui, name!, own)
+      : displaySection(ui, name!, sectionLabel(name!))
+  return [label, ...suffix].join(' ')
 }
+// What identifies and versions a record rather than describing it: kept, but out of the way. The
+// revision is a 64-character digest ORYH checks a save against, and it used to head every document.
 const isMetadata = (name: string) =>
-  name === 'id' || name.endsWith('_id') || name === 'created_at' || name === 'updated_at'
+  name === 'id' ||
+  name.endsWith('_id') ||
+  name === 'created_at' ||
+  name === 'updated_at' ||
+  name === 'revision' ||
+  name === 'superseded_by'
+
+/**
+ * What became of the todo itself, when something has: ORYH completes an approver's todo the moment the
+ * approval is recorded, so an approval made in Chat shows here as done, where it was asked for.
+ */
+function TodoOutcome({ document, t }: { document: TodoDocument; t: Words }) {
+  const fields = document.sections.find(s => s.name === 'todo')?.fields ?? []
+  const value = (name: string) => fields.find(f => f.name === name)?.value
+  const status = value('status'),
+    at = value('completed_at')
+  if (status === 'completed')
+    return (
+      <p role="status">
+        <StatusPill>{t('todoCompleted')}</StatusPill>
+        {at && at !== '—' ? ` ${formatDateTime(at)}` : ''}
+      </p>
+    )
+  if (status === 'cancelled')
+    return (
+      <p role="status">
+        <StatusPill>{t('todoCancelled')}</StatusPill>
+      </p>
+    )
+  return null
+}
 
 /**
  * The linked document of the open todo, read through the same authenticated business Remote as the
@@ -91,15 +115,16 @@ const isMetadata = (name: string) =>
  *
  * Which todo is open reaches Chat through the page's context; nothing here talks to the Host.
  */
-export function TodoChat({ connectionId, todoId }: { connectionId: ConnectionId; todoId: string }) {
-  const sessionId = useContext(BusinessSessionContext),
-    api = useTodosApi()
-  const { status, error: linkError } = usePane()
+export function TodoChat({ face, api, todoId, t }: { face: PageFace; api: TodosApi; todoId: string; t: Words }) {
+  const { sessionId } = face.frame
+  const connectionId = face.connection.id
+  const { status, error: linkError } = usePane(face)
   const [retry, setRetry] = useState(0),
     [document, setDocument] = useState<TodoDocument>(),
-    [error, setError] = useState('')
+    // A failure's own message, or `true` for one that brought none: the word for it is read as it is drawn.
+    [error, setError] = useState<string | true>('')
   // The linked document may have been changed in Chat; reading it again is the same re-sync as the button.
-  useServerRefresh(true, () => setRetry(n => n + 1))
+  useServerRefresh(face, true, () => setRetry(n => n + 1))
   useEffect(() => {
     let alive = true
     setDocument(undefined)
@@ -110,7 +135,7 @@ export function TodoChat({ connectionId, todoId }: { connectionId: ConnectionId;
         if (alive) setDocument(d)
       })
       .catch(e => {
-        if (alive) setError(e instanceof Error ? e.message : '关联详情读取失败。')
+        if (alive) setError(e instanceof Error ? e.message : true)
       })
     return () => {
       alive = false
@@ -118,29 +143,30 @@ export function TodoChat({ connectionId, todoId }: { connectionId: ConnectionId;
   }, [api, connectionId, todoId, retry])
   const linked = sessionId !== undefined && status === 'synced'
   const message = !sessionId
-    ? '请先在 Chat 中选择或创建一个会话。'
+    ? t('chatNeedsSession')
     : status === 'rejected'
-      ? (linkError ?? 'Chat 上下文同步失败。')
+      ? (linkError ?? t('chatSyncFailed'))
       : status === 'reconnecting'
-        ? '正在重新连接 Chat…'
-        : '正在同步 Chat 上下文…'
+        ? t('chatReconnecting')
+        : t('chatSyncing')
   return (
     <section className="oryh-todo-chat">
       <div className="chat-context-status">
         <p role="status">
-          <strong>{linked ? 'Chat 已关联当前待办' : 'Chat 上下文'}</strong>
+          <strong>{linked ? t('chatLinked') : t('chatContext')}</strong>
           {!linked && <> · {message}</>}
         </p>
-        <Button size="small" appearance="subtle" onClick={() => setRetry(n => n + 1)}>
-          重新同步
+        <Button size="sm" variant="ghost" onClick={() => setRetry(n => n + 1)}>
+          {t('resync')}
         </Button>
       </div>
-      {error && <p role="alert">{error}</p>}
-      {!document && !error && <p role="status">正在读取关联单据…</p>}
+      {error && <p role="alert">{error === true ? t('detailReadFailed') : error}</p>}
+      {document && <TodoOutcome document={document} t={t} />}
+      {!document && !error && <p role="status">{t('readingLinkedDocument')}</p>}
       {document && (
         <div className="surface document-detail">
-          <h2>{label(document.entityType)}</h2>
-          <p className="data-caption">来源：ORYH · 查询时间：{formatDateTime(document.fetchedAt)}</p>
+          <h2>{labelFor(t, document.entityType, face.frame.t)(document.entityType)}</h2>
+          <p className="data-caption">{t('sourceCaption', { time: formatDateTime(document.fetchedAt) })}</p>
           {document.sections
             .filter(s => s.name !== 'todo')
             .map(s => (
@@ -148,26 +174,33 @@ export function TodoChat({ connectionId, todoId }: { connectionId: ConnectionId;
                 key={s.name}
                 open={!s.name.includes('/') || /\/(quotation|request|po|order|header|claim)$/.test(s.name)}
               >
-                <summary>{s.name.split('/').map(label).join(' / ')}</summary>
+                <summary>
+                  {s.name
+                    .split('/')
+                    .map(labelFor(t, document.entityType, face.frame.t))
+                    .join(' / ')}
+                </summary>
                 <dl className="document-fields">
                   {s.fields
                     .filter(f => !isMetadata(f.name))
                     .map(f => (
                       <div key={f.name}>
-                        <dt>{label(f.name)}</dt>
-                        <dd>{f.name === 'status' ? statusLabel(f.value) : formatDisplayValue(f.value)}</dd>
+                        <dt>{labelFor(t, document.entityType, face.frame.t)(f.name)}</dt>
+                        <dd>
+                          {f.name === 'status' ? displayStatus(face.frame.t, f.value) : formatDisplayValue(f.value)}
+                        </dd>
                       </div>
                     ))}
                 </dl>
                 {s.fields.some(f => isMetadata(f.name)) && (
                   <details className="document-metadata">
-                    <summary>编号与系统记录</summary>
+                    <summary>{t('metadataSummary')}</summary>
                     <dl className="document-fields">
                       {s.fields
                         .filter(f => isMetadata(f.name))
                         .map(f => (
                           <div key={f.name}>
-                            <dt>{label(f.name)}</dt>
+                            <dt>{labelFor(t, document.entityType, face.frame.t)(f.name)}</dt>
                             <dd>{formatDisplayValue(f.value)}</dd>
                           </div>
                         ))}

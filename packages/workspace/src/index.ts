@@ -39,8 +39,8 @@ export class OryhWorkspace {
   constructor(private readonly remote: OryhClientRemote) {}
 
   /** Refresh connection-independent data and selected connection-specific direct actions. */
-  async load(): Promise<OryhWorkspaceSnapshot> {
-    const previousConnection = this.#activeConnectionId
+  async load(preferred?: string): Promise<OryhWorkspaceSnapshot> {
+    const previousConnection = (preferred as ConnectionId | undefined) ?? this.#activeConnectionId
     const generation = this.resetSelection()
     const [connections, operations] = await Promise.all([this.remote.listConnections(), this.remote.listOperations()])
     this.assertGeneration(generation)
@@ -56,8 +56,22 @@ export class OryhWorkspace {
     if (!this.#connections.some(connection => connection.id === connectionId)) {
       throw new OryhWorkspaceError('The selected ORYH connection is unavailable.', 'connection-not-found')
     }
+    const previous = this.snapshot()
     const generation = this.resetSelection()
-    await this.activateConnection(connectionId, generation)
+    try {
+      await this.activateConnection(connectionId, generation)
+    } catch (error) {
+      if (
+        generation === this.#generation &&
+        error instanceof OryhWorkspaceError &&
+        error.code === 'profile-switch-pending'
+      ) {
+        this.#activeConnectionId = previous.activeConnectionId
+        this.#savedOperations = previous.savedOperations
+        this.#currentResult = previous.currentResult
+      }
+      throw error
+    }
     return this.snapshot()
   }
 
@@ -71,15 +85,32 @@ export class OryhWorkspace {
   async pollConnection(): Promise<PollConnectionView> {
     const pending = this.requirePendingConnection()
     const generation = this.#generation
-    const outcome = await this.remote.pollConnection(pending.authorizationId)
+    let outcome: PollConnectionView
+    try {
+      outcome = await this.remote.pollConnection(pending.authorizationId)
+    } catch (error) {
+      // The attempt is over: an approval the Host refused — another account than this client's owner —
+      // has used its code up, and a page left showing that code waited for an approval that had already
+      // come and gone. The person sees why, and starts again.
+      if (this.#pendingConnection === pending) {
+        this.#pendingConnection = undefined
+        void this.remote.cancelConnection(pending.authorizationId).catch(() => {})
+      }
+      throw error
+    }
     this.assertGeneration(generation)
     if (this.#pendingConnection !== pending) throw staleRequest()
     if (outcome.state === 'connected') {
       this.#pendingConnection = undefined
-      const nextGeneration = this.resetSelection()
+      // Publish the switch only after its data is ready. A failed read after authorization must
+      // leave the current server usable, rather than clearing it halfway through the switch.
       const connections = await this.remote.listConnections()
+      this.assertGeneration(generation)
+      if (this.#pendingConnection !== undefined && this.#pendingConnection !== pending) throw staleRequest()
+      await this.requireProfile(outcome.connection.id)
       const savedOperations = await this.remote.listSavedOperations(outcome.connection.id)
-      this.assertGeneration(nextGeneration)
+      this.assertGeneration(generation)
+      this.resetSelection()
       this.#connections = [...connections]
       this.#savedOperations = [...savedOperations]
       this.#activeConnectionId = outcome.connection.id
@@ -91,9 +122,19 @@ export class OryhWorkspace {
 
   /** Cancel the visible device authorization and discard its Host-side poll state. */
   async cancelConnection(): Promise<OryhWorkspaceSnapshot> {
-    const pending = this.requirePendingConnection()
+    const pending = this.#pendingConnection
     this.#pendingConnection = undefined
-    await this.remote.cancelConnection(pending.authorizationId)
+    // Also cancel an approved attempt whose initial reads are still in flight, without clearing
+    // the current connection. Returning to the current server must beat a late replacement.
+    this.#generation += 1
+    if (pending) {
+      try {
+        await this.remote.cancelConnection(pending.authorizationId)
+      } catch (error) {
+        // The Host may already have consumed the approval while the cancel was travelling.
+        if (!(error instanceof Error && 'code' in error && error.code === 'connection-not-found')) throw error
+      }
+    }
     return this.snapshot()
   }
 
@@ -190,11 +231,22 @@ export class OryhWorkspace {
         'The verified connection does not match the selected enterprise.',
         'cross-connection-result',
       )
+    await this.requireProfile(connectionId)
+    this.assertGeneration(generation)
     const savedOperations = await this.remote.listSavedOperations(connectionId)
     this.assertGeneration(generation)
     this.replaceConnection(verified)
     this.#savedOperations = [...savedOperations]
     this.#activeConnectionId = connectionId
+  }
+
+  private async requireProfile(connectionId: ConnectionId): Promise<void> {
+    if (this.remote.activateProfile && !(await this.remote.activateProfile(connectionId))) {
+      throw new OryhWorkspaceError(
+        'Account Profile switch requested. If you cancelled the active-task prompt, choose the account again.',
+        'profile-switch-pending',
+      )
+    }
   }
 
   private requireActiveConnection(): ConnectionId {
@@ -236,6 +288,7 @@ export class OryhWorkspaceError extends Error {
 
 /** Stable workspace error categories suitable for localized UI messages. */
 export type OryhWorkspaceErrorCode =
+  | 'profile-switch-pending'
   | 'stale-request'
   | 'authorization-not-found'
   | 'connection-not-found'
@@ -248,7 +301,26 @@ function resolveActiveConnection(
   connections: readonly ConnectionSummary[],
 ): ConnectionId | undefined {
   if (current !== undefined && connections.some(connection => connection.id === current)) return current
-  return connections.length === 1 ? connections[0]?.id : undefined
+  const first = connections[0]
+  if (!first) return undefined
+  // Reauthorizing the same account creates another local grant. That is still one
+  // enterprise identity, so restore its newest grant rather than asking it to log in again.
+  // Different employers, users, employees or environments still require an explicit choice.
+  if (
+    connections.some(
+      next =>
+        next.origin !== first.origin ||
+        next.identity.tenant.id !== first.identity.tenant.id ||
+        next.identity.tenant.environmentId !== first.identity.tenant.environmentId ||
+        next.identity.user.id !== first.identity.user.id ||
+        next.identity.user.employeeId !== first.identity.user.employeeId,
+    )
+  ) {
+    return undefined
+  }
+  return connections.reduce((latest, next) =>
+    Date.parse(next.connectedAt) > Date.parse(latest.connectedAt) ? next : latest,
+  ).id
 }
 
 /** Keep opaque IDs in the public type import set even though UI code never constructs them. */

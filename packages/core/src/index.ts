@@ -1,5 +1,6 @@
 export * from './access.js'
 export * from './agent-context.js'
+export * from './attachments.js'
 export * from './brand.js'
 export * from './connection-store.js'
 export * from './connections.js'
@@ -15,14 +16,14 @@ export { type ListParameter, ListParameters, parameters as listParameters } from
 export * from './local-runtime.js'
 export * from './mcp.js'
 export * from './operations.js'
+export * from './page-reads.js'
 export * from './remote.js'
 export * from './saved-operations.js'
+export * from './server-binding.js'
 export * from './server-operation.js'
-export * from './server-read.js'
 export * from './server-runtime.js'
 export * from './skill-bundle.js'
 export * from './skill-service.js'
-// The business domains now live in their own packages and are no longer re-exported here:
-// @oryh/ai-client-records, -timesheets, -todos, -projects and -expenses. Consumers import
-// them directly, so nothing can reach a domain through the core.
+// No business domain is known here. Records and to-dos live in their own libraries and build their
+// services on `OryhClientHost.createDomainReads()`; this package depends on neither.
 export { WorkflowDefinitions } from './workflow.js'

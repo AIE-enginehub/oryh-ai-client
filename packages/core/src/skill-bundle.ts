@@ -23,10 +23,19 @@ import { OryhMcpClient } from './mcp.js'
  * See `docs/23-oryh-skills.md`.
  */
 
-/** One skill as the server currently entitles it: what a local manifest is compared against. */
+/**
+ * One skill as the server currently entitles it: what a local manifest is compared against.
+ *
+ * ORYH counts a skill's versions and hashes its files, and either moving means its text changed. Read
+ * under other names they were both dropped, and a manifest was its names alone: a skill rewritten on
+ * the server under the same name was never fetched again, and the agent went on following a text the
+ * server had replaced — after ORYH's rules became business rules, it kept asking for the old paths.
+ */
 export interface SkillManifestEntry {
   readonly name: string
+  /** ORYH's `version`, a count, kept as text. */
   readonly version?: string
+  /** ORYH's `files_hash`, over the skill's templates. */
   readonly hash?: string
 }
 
@@ -173,8 +182,10 @@ export class SkillBundleService {
         ? [
             {
               name: entry.name,
-              ...(typeof entry.version === 'string' ? { version: entry.version } : {}),
-              ...(typeof entry.hash === 'string' ? { hash: entry.hash } : {}),
+              ...(typeof entry.version === 'number' || typeof entry.version === 'string'
+                ? { version: String(entry.version) }
+                : {}),
+              ...(typeof entry.files_hash === 'string' ? { hash: entry.files_hash } : {}),
             },
           ]
         : []

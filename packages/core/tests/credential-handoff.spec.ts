@@ -63,6 +63,27 @@ describe('credential handoff', () => {
     await expect(credentials.read(connection!.id)).resolves.toMatchObject({ accessKey: 'second' })
   })
 
+  it('forgets everyone else when a sole sign-in changes who the Host belongs to', async () => {
+    const credentials = new MemoryCredentialVault()
+    const store = new MemoryConnectionStore()
+    const fetcher = new ScriptedFetcher([me(), me('user-2')])
+    const items = [handed('first')]
+    const host = new OryhClientHost({
+      credentialVault: credentials,
+      connectionStore: store,
+      fetcher: fetcher.fetch,
+      credentialHandoff: queue(items),
+    })
+    const [first] = await host.connections()
+
+    items.push({ ...handed('second'), sole: true })
+    const after = await host.connections()
+    expect(after.map(c => c.identity.user.id)).toEqual(['user-2'])
+    await expect(credentials.read(first!.id)).resolves.toBeUndefined()
+    await expect(credentials.read(after[0]!.id)).resolves.toMatchObject({ accessKey: 'second' })
+    await expect(store.load()).resolves.toHaveLength(1)
+  })
+
   it('leaves no connection behind when the credential does not verify', async () => {
     const credentials = new MemoryCredentialVault()
     const fetcher = new ScriptedFetcher([jsonResponse(401, { detail: 'invalid api key' })])
@@ -93,5 +114,50 @@ describe('credential handoff', () => {
     await writeFile(path, '{"origin":"https://oryh.example"}')
     await expect(handoff.take()).rejects.toThrow(/malformed/)
     await expect(stat(path)).rejects.toThrow()
+  })
+})
+
+describe('the one person a single-user deployment belongs to', () => {
+  const identity = (userId: string, email: string) =>
+    ({
+      user: { id: userId, email, name: null, role: 'sales', employeeId: null },
+      tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme', environmentId: null },
+    }) as never
+
+  it('may connect, and nobody else may: the refusal names both accounts', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { ownerAdmission } = await import('../src/index.js')
+    const directory = await mkdtemp(join(tmpdir(), 'oryh-owner-'))
+    try {
+      const path = join(directory, 'owner.json')
+      const admit = ownerAdmission(path)
+      // Nobody has signed in yet: there is no owner to hold anyone to.
+      await expect(admit('https://oryh.example', identity('user-2', 'other@example.com'))).resolves.toBeUndefined()
+      await writeFile(
+        path,
+        JSON.stringify({
+          origin: 'https://oryh.example',
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          email: 'owner@example.com',
+        }),
+      )
+      await expect(admit('https://oryh.example', identity('user-1', 'owner@example.com'))).resolves.toBeUndefined()
+      await expect(admit('https://oryh.example', identity('user-2', 'other@example.com'))).rejects.toMatchObject({
+        code: 'connection-owner-mismatch',
+        message: expect.stringMatching(/owner@example\.com.*other@example\.com/),
+      })
+      // The same person on another ORYH is another account.
+      await expect(admit('https://elsewhere.example', identity('user-1', 'owner@example.com'))).rejects.toMatchObject({
+        code: 'connection-owner-mismatch',
+      })
+      // An owner file that cannot be read is not a reason to let anyone in.
+      await writeFile(path, 'not json')
+      await expect(admit('https://oryh.example', identity('user-1', 'owner@example.com'))).rejects.toThrow(/无法确认/)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

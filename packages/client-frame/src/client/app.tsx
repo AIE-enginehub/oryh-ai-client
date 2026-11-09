@@ -1,38 +1,27 @@
+import type { ConnectionSummary } from '@oryh/ai-client-core'
 import {
   Button,
-  Caption1,
-  Card,
+  columnPreferenceScope,
   Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
   Field,
-  FluentProvider,
   Input,
-  MessageBar,
-  MessageBarBody,
+  LinkButton,
+  LocalRemoteError,
+  Notice,
+  noUserViews,
   Select,
   Spinner,
-  Text,
-  Title1,
-  Title2,
-  webDarkTheme,
-  webLightTheme,
-} from '@fluentui/react-components'
-import type { ConnectionSummary } from '@oryh/ai-client-core'
+  viewGranted,
+} from '@oryh/ai-client-kit'
+import { type BusinessCopy, useBusinessCopy } from '@oryh/ai-client-kit/dictionary'
 import { allowedPages } from '@oryh/ai-client-pages'
 import { OryhWorkspace, type OryhWorkspaceSnapshot } from '@oryh/ai-client-workspace'
 import { IconDeviceDesktop } from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { columnPreferenceScope } from './column-preferences.js'
 import type { BusinessView, FrameIdentity } from './layout-store.js'
-import { type BusinessCopy, useBusinessCopy, useBusinessText } from './locale.js'
-import { LocalRemoteError, useOryhRemote } from './remote.js'
-import { useUserViews } from './user-views.js'
-import { PreferenceScope } from './view-preferences.js'
-import { Workbench } from './workbench.js'
+import { enterAgainIfLost, isFinalFailure, retryDelay } from './permission-check.js'
+import { restoreStartupConnection } from './startup-connection.js'
+import { type FrameEnv, Workbench } from './workbench.js'
 
 const authStyles = {
   intro: 'connect-intro',
@@ -45,31 +34,37 @@ const authStyles = {
   resultToolbar: 'toolbar',
 }
 type AuthStyles = typeof authStyles
-type BusyAction = 'load' | 'connect' | 'disconnect' | 'run' | undefined
+type BusyAction = 'load' | 'connect' | 'run' | undefined
 /** How stale the verified grants may be before returning to the window asks ORYH again. */
 const REVERIFY_AFTER_MS = 5 * 60_000
 export function App({
+  env,
   dark,
   page,
   onIdentity,
 }: {
+  /** What the frame's entry was drawn with, handed on to whatever needs it. */
+  env: FrameEnv
   dark: boolean
   page: BusinessView
   onIdentity: (identity: FrameIdentity | undefined) => void
 }): ReactNode {
-  const t = useBusinessText()
-  const copy = useBusinessCopy()
+  const { t, remote } = env
+  const copy = useBusinessCopy(t)
   const styles = authStyles
-  const remote = useOryhRemote()
   const workspace = useMemo(() => new OryhWorkspace(remote), [remote])
   const [snapshot, setSnapshot] = useState<OryhWorkspaceSnapshot>(() => workspace.snapshot())
   const actionGeneration = useRef(0)
+  const startupRecovery = useRef<AbortController | undefined>(undefined)
+  const [startupRetrying, setStartupRetrying] = useState(false)
   const [expenseDirty, setExpenseDirty] = useState(false)
   const [busy, setBusy] = useState<BusyAction>('load')
   const [error, setError] = useState<string | undefined>()
   const [origin, setOrigin] = useState('')
   /** Where this deployment signs people out, when it is the one holding the sign-in (the server). */
   const [signOut, setSignOut] = useState<string>()
+  /** Where this single-user client is handed to another account, when its deployment lets the person. */
+  const [switchAccount, setSwitchAccount] = useState<string>()
   useEffect(() => {
     let live = true
     void remote
@@ -78,6 +73,7 @@ export function App({
         if (!live) return
         setOrigin(current => current || defaults.origin)
         setSignOut(defaults.signOut)
+        setSwitchAccount(defaults.switchAccount)
       })
       .catch(() => {
         /* A default is optional; users can still enter their server. */
@@ -86,7 +82,7 @@ export function App({
       live = false
     }
   }, [remote])
-  const [disconnectOpen, setDisconnectOpen] = useState(false)
+  const [changingServer, setChangingServer] = useState(false)
   const [signOutOpen, setSignOutOpen] = useState(false)
   const isDark = dark
   const selectedConnection =
@@ -95,40 +91,61 @@ export function App({
       : snapshot.connections.find(connection => connection.id === snapshot.activeConnectionId)
   const [verified, setVerified] = useState<ConnectionSummary>()
   const [accessError, setAccessError] = useState(false)
+  /** Asks again now; what the pane's own "retry" does. */
+  const recheck = useRef<() => void>(() => {})
   useEffect(() => {
     let live = true,
       running = false,
-      verifiedAt = 0
+      verifiedAt = 0,
+      failures = 0,
+      retry: number | undefined
     setVerified(undefined)
     setAccessError(false)
     const refresh = async () => {
       if (!selectedConnection || running) return
       running = true
+      if (retry !== undefined) window.clearTimeout(retry)
+      retry = undefined
       try {
         const next = await remote.verifyConnection(selectedConnection.id)
         verifiedAt = Date.now()
+        failures = 0
         if (live) {
           setVerified(next)
           setAccessError(false)
         }
-      } catch {
-        if (live) {
+      } catch (reason) {
+        if (!live) return
+        if (isFinalFailure(reason)) {
+          // An answer about the person: this is not them any more, or their sign-in is gone.
           setVerified(undefined)
           setAccessError(true)
+          return
         }
+        // A failure to ask (permission-check.ts): what was verified stays, and the question is put again
+        // shortly. The pane says so only where nothing was ever verified to show in the meantime.
+        failures++
+        setAccessError(true)
+        retry = window.setTimeout(() => void refresh(), retryDelay(failures))
+        // On the server version a restarted control process no longer knows this page: asking again
+        // would be refused for good, and the page said "retrying" for as long as it stayed open. Entering
+        // again is what recovers, without a new sign-in — so the page does it itself.
+        if (failures >= 2) void enterAgainIfLost()
       } finally {
         running = false
       }
     }
+    recheck.current = () => void refresh()
     void refresh()
-    // No timer: a person who is away needs no fresh grants, and every page read is checked by the
-    // Host and by ORYH anyway. Coming back to the window after a while asks once.
+    // No timer while all is well: a person who is away needs no fresh grants, and every page read is
+    // checked by the Host and by ORYH anyway. Coming back to the window after a while asks once.
     const focus = () => {
       if (Date.now() - verifiedAt >= REVERIFY_AFTER_MS) void refresh()
     }
     window.addEventListener('focus', focus)
     return () => {
       live = false
+      if (retry !== undefined) window.clearTimeout(retry)
       window.removeEventListener('focus', focus)
     }
   }, [selectedConnection?.id, remote])
@@ -142,32 +159,52 @@ export function App({
       : undefined
   const permittedPages = permittedConnection ? allowedPages(permittedConnection.identity) : ['settings']
   const allowedKey = permittedPages.join(',')
-  // Only once verified, and only entries over lists this person may open right now: a permission
-  // revoked in ORYH hides the entry exactly as it hides the list underneath.
-  const { views: userViews } = useUserViews(permittedConnection)
-  const menuViews = userViews.filter(v => permittedPages.includes(v.kind)).map(({ id, label }) => ({ id, label }))
+  // Only once verified. An entry the person made is theirs to see; whether ORYH lets them read what it
+  // lists is answered when the list is read. An entry their role implies shows while the role grants it.
+  const { views: userViews } =
+    env.useMenu(permittedConnection ? columnPreferenceScope(permittedConnection) : '') ?? noUserViews
+  const menuViews = userViews
+    .filter(v => (permittedConnection ? viewGranted(permittedConnection.identity, v) : false))
+    .map(({ id, label, collection, origin, sharedBy }) => ({
+      id,
+      label,
+      collection,
+      ...(origin ? { origin } : {}),
+      ...(sharedBy ? { sharedBy } : {}),
+    }))
   const menuViewsKey = JSON.stringify(menuViews)
+  // Known before the grants are: the frame brings this person's last page back while they are verified.
+  const scope = activeConnection ? columnPreferenceScope(activeConnection) : undefined
   const company = activeConnection ? tenantName(activeConnection) : undefined
   const email = activeConnection?.identity.user.email
   const askSignOut = useCallback(() => setSignOutOpen(true), [])
+  // The gateway's page says who is signed in and what switching does before anything changes.
+  const goSwitchAccount = useCallback(() => {
+    if (switchAccount !== undefined) window.location.assign(switchAccount)
+  }, [switchAccount])
   useEffect(() => {
     onIdentity(
-      company && email
+      scope && company && email
         ? {
+            scope,
             company,
             email,
             allowedPages: permittedPages,
             views: menuViews,
             ...(signOut === undefined ? {} : { signOut: askSignOut }),
+            ...(switchAccount === undefined ? {} : { switchAccount: goSwitchAccount }),
           }
         : undefined,
     )
     return () => onIdentity(undefined)
-  }, [company, email, onIdentity, allowedKey, menuViewsKey, signOut, askSignOut])
+  }, [scope, company, email, onIdentity, allowedKey, menuViewsKey, signOut, askSignOut, switchAccount, goSwitchAccount])
   const apply = useCallback(
     async (action: () => Promise<void>, nextBusy: BusyAction) => {
+      startupRecovery.current?.abort()
+      startupRecovery.current = undefined
       const generation = ++actionGeneration.current
       setBusy(nextBusy)
+      setStartupRetrying(false)
       setError(undefined)
       try {
         const pending = action()
@@ -176,7 +213,10 @@ export function App({
       } catch (reason) {
         if (
           generation === actionGeneration.current &&
-          !(reason instanceof Error && 'code' in reason && reason.code === 'stale-request')
+          !(
+            reason instanceof Error &&
+            (reason.name === 'AbortError' || ('code' in reason && reason.code === 'stale-request'))
+          )
         ) {
           setError(messageFor(reason, copy))
         }
@@ -190,9 +230,23 @@ export function App({
     [workspace],
   )
   useEffect(() => {
+    let recovery: AbortController | undefined
     void apply(async () => {
-      await workspace.load()
+      recovery = new AbortController()
+      startupRecovery.current = recovery
+      await restoreStartupConnection(
+        async () => {
+          const defaults = await remote.connectionDefaults()
+          return workspace.load(defaults.activeConnectionId)
+        },
+        recovery.signal,
+        () => setStartupRetrying(true),
+      )
     }, 'load')
+    return () => {
+      recovery?.abort()
+      if (startupRecovery.current === recovery) startupRecovery.current = undefined
+    }
   }, [apply, workspace])
   useEffect(() => {
     const pending = snapshot.pendingConnection
@@ -201,10 +255,16 @@ export function App({
     let timer: number | undefined
     const poll = async () => {
       try {
-        await workspace.pollConnection()
+        const outcome = await workspace.pollConnection()
+        if (!disposed && outcome.state === 'connected') setChangingServer(false)
         if (!disposed) setSnapshot(workspace.snapshot())
       } catch (reason) {
-        if (!disposed) setError(messageFor(reason, copy))
+        if (reason instanceof Error && 'code' in reason && reason.code === 'stale-request') return
+        if (!disposed) {
+          setError(messageFor(reason, copy))
+          // The attempt ended with the error; the page goes back to offering a new one.
+          setSnapshot(workspace.snapshot())
+        }
         return
       }
       if (!disposed && workspace.snapshot().pendingConnection !== undefined) {
@@ -221,7 +281,7 @@ export function App({
       if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [snapshot.pendingConnection?.authorizationId, workspace])
-  const connectionControls = (
+  const savedConnections = (
     <>
       {snapshot.connections.length > 1 && (
         <Field label={t('text1')}>
@@ -240,17 +300,25 @@ export function App({
             </option>
             {snapshot.connections.map(connection => (
               <option key={connection.id} value={connection.id}>
-                {tenantName(connection)}
+                {tenantName(connection)} · {connection.identity.user.email} · {connection.origin}
               </option>
             ))}
           </Select>
         </Field>
       )}
-      {/* Connecting and disconnecting are the desktop's, where the person holds the credential. On a
+    </>
+  )
+  const connectionControls = (
+    <>
+      {savedConnections}
+      {/* Connecting is the desktop's. On a
           deployment that signed them in, the one thing to offer is the way out. */}
-      {signOut === undefined && (
-        <div className="toolbar">
-          {activeConnection && !snapshot.pendingConnection && (
+      {signOut === undefined && switchAccount === undefined && (
+        <div className="connection-action">
+          <h3>{copy.connectAnotherAccount}</h3>
+          <p>{copy.changeAccountDescription}</p>
+          {/* A second account is refused by a single-user container's owner check: there, switching is offered. */}
+          {activeConnection && !snapshot.pendingConnection && switchAccount === undefined && (
             <Button
               disabled={busy !== undefined || expenseDirty}
               onClick={() => {
@@ -265,11 +333,30 @@ export function App({
           )}
         </div>
       )}
+      {switchAccount !== undefined && (
+        <div className="disconnect-section">
+          <p>{copy.switchAccountDescription}</p>
+          <Button disabled={busy !== undefined || expenseDirty} onClick={goSwitchAccount}>
+            {copy.switchAccount}
+          </Button>
+        </div>
+      )}
       {activeConnection && signOut === undefined && (
         <div className="disconnect-section">
-          <p>{copy.disconnectDescription}</p>
-          <Button disabled={busy !== undefined || expenseDirty} onClick={() => setDisconnectOpen(true)}>
-            {copy.disconnect}
+          <h3>{copy.changeServer}</h3>
+          <p>{switchAccount === undefined ? copy.changeServerDescription : copy.changeServerRedirectDescription}</p>
+          <Button
+            disabled={busy !== undefined || expenseDirty || snapshot.pendingConnection !== undefined}
+            onClick={() => {
+              if (switchAccount !== undefined) {
+                goSwitchAccount()
+                return
+              }
+              setOrigin('')
+              setChangingServer(true)
+            }}
+          >
+            {copy.changeServer}
           </Button>
         </div>
       )}
@@ -278,22 +365,28 @@ export function App({
   const notices = (
     <>
       {error && (
-        <MessageBar intent="error">
-          <MessageBarBody>{error}</MessageBarBody>
-          <Button
-            disabled={expenseDirty || busy !== undefined}
-            onClick={() => {
-              void apply(async () => {
-                await workspace.load()
-              }, 'load')
-            }}
-          >
-            {t('text4')}
-          </Button>
-        </MessageBar>
+        <Notice
+          intent="error"
+          actions={
+            <Button
+              size="sm"
+              disabled={expenseDirty || busy !== undefined}
+              onClick={() => {
+                void apply(async () => {
+                  await workspace.load()
+                }, 'load')
+              }}
+            >
+              {t('text4')}
+            </Button>
+          }
+        >
+          {error}
+        </Notice>
       )}
-      {activeConnection && snapshot.pendingConnection && (
+      {activeConnection && !changingServer && snapshot.pendingConnection && (
         <DeviceAuthorization
+          copy={copy}
           styles={styles}
           pending={snapshot.pendingConnection}
           busy={busy}
@@ -308,105 +401,122 @@ export function App({
     </>
   )
   return (
-    <FluentProvider
-      theme={isDark ? webDarkTheme : webLightTheme}
-      className="client-root"
-      data-theme={isDark ? 'dark' : 'light'}
-    >
-      {activeConnection ? (
+    <div className="client-root" data-theme={isDark ? 'dark' : 'light'}>
+      {activeConnection && !changingServer ? (
         !permittedConnection && page !== 'settings' ? (
           <main className="business-content">
-            <p role="status">{accessError ? '无法核验当前账号权限，请刷新页面重试。' : '正在核验当前账号权限…'}</p>
+            {accessError ? (
+              <p role="status">
+                {t('verifyRetrying')}{' '}
+                <Button size="sm" onClick={() => recheck.current()}>
+                  {t('verifyRetryNow')}
+                </Button>
+              </p>
+            ) : (
+              <p role="status">{t('verifying')}</p>
+            )}
           </main>
         ) : (
-          <PreferenceScope.Provider value={columnPreferenceScope(activeConnection)}>
-            <Workbench
-              key={`${activeConnection.id}:${activeConnection.identity.tenant.id}:${activeConnection.identity.user.id}:${activeConnection.identity.user.employeeId}`}
-              page={page}
-              connection={
-                permittedConnection ?? {
-                  ...activeConnection,
-                  identity: { ...activeConnection.identity, permissions: [] },
-                }
+          <Workbench
+            env={env}
+            key={`${activeConnection.id}:${activeConnection.identity.tenant.id}:${activeConnection.identity.user.id}:${activeConnection.identity.user.employeeId}`}
+            page={page}
+            connection={
+              permittedConnection ?? {
+                ...activeConnection,
+                identity: { ...activeConnection.identity, permissions: [] },
               }
-              onDirtyChange={setExpenseDirty}
-              settings={connectionControls}
-              notices={notices}
-            />
-          </PreferenceScope.Provider>
+            }
+            onDirtyChange={setExpenseDirty}
+            settings={connectionControls}
+            notices={notices}
+          />
         )
       ) : (
         <main className="connection-screen">
           <div className="connection-brand">
             ORYH <span>{t('text5')}</span>
           </div>
+          {changingServer && (
+            <>
+              <Button
+                disabled={busy !== undefined}
+                onClick={() => {
+                  void apply(async () => {
+                    if (snapshot.pendingConnection) await workspace.cancelConnection()
+                    setChangingServer(false)
+                  }, 'connect')
+                }}
+              >
+                {copy.cancelServerChange}
+              </Button>
+            </>
+          )}
           {notices}
           {busy === 'load' ? (
-            <Spinner label={t('text6')} />
+            <Spinner label={t(startupRetrying ? 'verifyRetrying' : 'text6')} />
           ) : (
-            <ConnectView
-              styles={styles}
-              origin={origin}
-              pending={snapshot.pendingConnection}
-              busy={busy}
-              onOriginChange={setOrigin}
-              onBegin={() => {
-                void apply(async () => {
-                  await workspace.beginConnection(origin.trim(), copy.productName)
-                }, 'connect')
-              }}
-              onCancel={() => {
-                void apply(async () => {
-                  await workspace.cancelConnection()
-                }, 'connect')
-              }}
-            />
+            <>
+              {!activeConnection && snapshot.pendingConnection === undefined && savedConnections}
+              <ConnectView
+                changingServer={changingServer}
+                t={t}
+                copy={copy}
+                styles={styles}
+                origin={origin}
+                pending={snapshot.pendingConnection}
+                busy={busy}
+                onOriginChange={setOrigin}
+                onBegin={() => {
+                  void apply(async () => {
+                    await workspace.beginConnection(origin.trim(), copy.productName)
+                  }, 'connect')
+                }}
+                onCancel={() => {
+                  void apply(async () => {
+                    await workspace.cancelConnection()
+                  }, 'connect')
+                }}
+              />
+            </>
           )}
         </main>
       )}
       {signOut !== undefined && (
         <Dialog
           open={signOutOpen}
-          onOpenChange={(_event, data) => {
-            if (!data.open) setSignOutOpen(false)
-          }}
+          onClose={() => setSignOutOpen(false)}
+          title={copy.signOutTitle}
+          closeLabel={t('dialogClose')}
+          actions={
+            <>
+              <Button onClick={() => setSignOutOpen(false)}>{copy.cancel}</Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const form = document.createElement('form')
+                  form.method = 'POST'
+                  form.action = signOut
+                  document.body.append(form)
+                  form.submit()
+                  form.remove()
+                }}
+              >
+                {copy.signOut}
+              </Button>
+            </>
+          }
         >
-          <DialogSurface>
-            <DialogBody>
-              <DialogTitle>{copy.signOutTitle}</DialogTitle>
-              <DialogContent>{copy.signOutDescription}</DialogContent>
-              <DialogActions>
-                <Button appearance="secondary" onClick={() => setSignOutOpen(false)}>
-                  {copy.cancel}
-                </Button>
-                <Button
-                  appearance="primary"
-                  onClick={() => {
-                    window.location.assign(signOut)
-                  }}
-                >
-                  {copy.signOut}
-                </Button>
-              </DialogActions>
-            </DialogBody>
-          </DialogSurface>
+          <p>{copy.signOutDescription}</p>
         </Dialog>
       )}
-      <DisconnectDialog
-        busy={busy}
-        open={disconnectOpen}
-        onClose={() => setDisconnectOpen(false)}
-        onDisconnect={() => {
-          void apply(async () => {
-            await workspace.disconnect()
-            setDisconnectOpen(false)
-          }, 'disconnect')
-        }}
-      />
-    </FluentProvider>
+    </div>
   )
 }
 interface ConnectViewProps {
+  readonly changingServer?: boolean
+  readonly t: FrameEnv['t']
+  readonly copy: BusinessCopy
   readonly styles: AuthStyles
   readonly origin: string
   readonly pending: OryhWorkspaceSnapshot['pendingConnection']
@@ -416,6 +526,7 @@ interface ConnectViewProps {
   readonly onCancel: () => void
 }
 function ConnectView({
+  changingServer = false,
   styles,
   origin,
   pending,
@@ -423,16 +534,16 @@ function ConnectView({
   onOriginChange,
   onBegin,
   onCancel,
+  t,
+  copy,
 }: ConnectViewProps): ReactNode {
-  const t = useBusinessText()
-  const copy = useBusinessCopy()
   return (
     <section className={styles.intro} aria-labelledby="connect-heading">
-      <Caption1>{copy.connection}</Caption1>
-      <Title1 id="connect-heading">{copy.connectEnterprise}</Title1>
-      <Text>{t('text7')}</Text>
+      <span className="oryh-caption">{copy.connection}</span>
+      <h1 id="connect-heading">{changingServer ? copy.changeServer : copy.connectEnterprise}</h1>
+      <p>{changingServer ? copy.changeServerDescription : t('text7')}</p>
       {pending === undefined ? (
-        <Card className={styles.card}>
+        <div className={`surface ${styles.card}`}>
           <div className={styles.connectForm}>
             <Field label={copy.origin} hint={copy.originHelp}>
               <Input
@@ -447,8 +558,7 @@ function ConnectView({
               </datalist>
             </Field>
             <Button
-              appearance="primary"
-              size="large"
+              variant="primary"
               icon={<IconDeviceDesktop size={18} stroke={1.8} />}
               disabled={busy !== undefined || !origin.trim()}
               onClick={onBegin}
@@ -456,14 +566,15 @@ function ConnectView({
               {copy.startConnection}
             </Button>
           </div>
-        </Card>
+        </div>
       ) : (
-        <DeviceAuthorization styles={styles} pending={pending} busy={busy} onCancel={onCancel} />
+        <DeviceAuthorization styles={styles} pending={pending} busy={busy} onCancel={onCancel} copy={copy} />
       )}
     </section>
   )
 }
 interface DeviceAuthorizationProps {
+  readonly copy: BusinessCopy
   readonly styles: AuthStyles
   readonly pending: NonNullable<OryhWorkspaceSnapshot['pendingConnection']>
   readonly busy: BusyAction
@@ -477,75 +588,33 @@ function DeviceAuthorization({
   busy,
   switchingAccount = false,
   onCancel,
+  copy,
 }: DeviceAuthorizationProps): ReactNode {
-  const t = useBusinessText()
-  const copy = useBusinessCopy()
   return (
-    <Card className={styles.card}>
+    <div className={`surface ${styles.card}`}>
       <div className={styles.approval}>
         <div className={styles.cardTitle}>
-          <Title2>{copy.approvalTitle}</Title2>
-          <Text>{copy.approvalDescription}</Text>
-          {switchingAccount && <Caption1>{copy.switchAccountHelp}</Caption1>}
+          <h2>{copy.approvalTitle}</h2>
+          <p>{copy.approvalDescription}</p>
+          {switchingAccount && <span className="oryh-caption">{copy.switchAccountHelp}</span>}
         </div>
         <div>
-          <Caption1>{copy.userCode}</Caption1>
+          <span className="oryh-caption">{copy.userCode}</span>
           <div className={styles.code}>{pending.prompt.userCode}</div>
         </div>
         <div className={styles.inlineStatus}>
-          <Spinner size="tiny" />
-          <Text>{copy.waitingApproval}</Text>
+          <Spinner size="sm" label={copy.waitingApproval} />
         </div>
         <div className={styles.resultToolbar}>
-          <Button
-            appearance="primary"
-            as="a"
-            href={pending.prompt.verificationUriComplete}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <LinkButton variant="primary" href={pending.prompt.verificationUriComplete} target="_blank" rel="noreferrer">
             {copy.openApproval}
-          </Button>
-          <Button appearance="secondary" disabled={busy !== undefined} onClick={onCancel}>
+          </LinkButton>
+          <Button disabled={busy !== undefined} onClick={onCancel}>
             {copy.cancel}
           </Button>
         </div>
       </div>
-    </Card>
-  )
-}
-interface DisconnectDialogProps {
-  readonly busy: BusyAction
-  readonly open: boolean
-  readonly onClose: () => void
-  readonly onDisconnect: () => void
-}
-/** Confirm removal of one local credential bundle without ending the browser's ORYH session. */
-function DisconnectDialog({ busy, open, onClose, onDisconnect }: DisconnectDialogProps): ReactNode {
-  const t = useBusinessText()
-  const copy = useBusinessCopy()
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(_event, data) => {
-        if (!data.open) onClose()
-      }}
-    >
-      <DialogSurface>
-        <DialogBody>
-          <DialogTitle>{copy.disconnectTitle}</DialogTitle>
-          <DialogContent>{copy.disconnectDescription}</DialogContent>
-          <DialogActions>
-            <Button appearance="secondary" disabled={busy !== undefined} onClick={onClose}>
-              {copy.cancel}
-            </Button>
-            <Button appearance="primary" disabled={busy !== undefined} onClick={onDisconnect}>
-              {copy.disconnect}
-            </Button>
-          </DialogActions>
-        </DialogBody>
-      </DialogSurface>
-    </Dialog>
+    </div>
   )
 }
 function tenantName(connection: ConnectionSummary): string {

@@ -1,26 +1,22 @@
 // @vitest-environment jsdom
 
-import { fakePane, formatDisplayValue, PaneValueContext } from '@oryh/dsh-client-frame/client'
+import { columnPreferenceScope, formatDisplayValue } from '@oryh/ai-client-kit'
+import { fakeFace, wordsOf } from '@oryh/ai-client-kit/testing'
 import { act, createElement as h } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-import { RecordsApiContext } from './api.js'
 import { RecordPanel } from './records.js'
+import { words } from './words.js'
 
-vi.mock('@oryh/dsh-client-frame/client', async importOriginal => {
-  const actual = await importOriginal<typeof import('@oryh/dsh-client-frame/client')>()
-  return { ...actual, useText: () => (key: keyof typeof actual.dictionaries) => actual.dictionaries[key] }
+const t = wordsOf(words)
+
+/** One identity's connection: a list keeps its preferences per identity, so each test signs in as its own. */
+const connectionOf = (user: string, tenant = 't') => ({
+  id: 'c',
+  origin: 'https://oryh.test',
+  identity: { tenant: { id: tenant }, user: { id: user } },
 })
 vi.mock('./product-picker.js', () => ({ ProductPicker: () => h('button', null, '选择产品') }))
-vi.mock('@fluentui/react-components', () => ({
-  Spinner: () => null,
-  MessageBar: ({ children }: any) => h('div', { role: 'alert' }, children),
-  MessageBarBody: ({ children }: any) => h('span', null, children),
-  Button: ({ appearance, size, icon, children, ...props }: any) => h('button', props, children),
-  Field: ({ label, children }: any) => h('label', null, label, children),
-  Input: ({ onChange, ...props }: any) =>
-    h('input', { ...props, onChange: (e: any) => onChange?.(e, { value: e.target.value }) }),
-}))
 it('updates ledger columns and page context without fetching again, and retains record access', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const recordList = vi.fn(async () => ({
@@ -29,9 +25,9 @@ it('updates ledger columns and page context without fetching again, and retains 
         id: 'r',
         title: 'issued',
         fields: [
-          { label: '产品编码', value: 'P-1' },
-          { label: '现存数量变动', value: '-1' },
-          { label: '创建时间', value: '2026-09-01T08:00:00Z' },
+          { field: 'product_code', label: '产品编码', value: 'P-1' },
+          { field: 'quantity_on_hand_diff', label: '现存数量变动', value: '-1' },
+          { field: 'created_at', label: '创建时间', value: '2026-09-01T08:00:00Z' },
         ],
       },
     ],
@@ -47,18 +43,17 @@ it('updates ledger columns and page context without fetching again, and retains 
         { name: 'reason', type: 'string' },
         { name: 'include_archived_items', type: 'boolean' },
       ]),
+      // Opening a record asks for its child tables; a movement has none.
+      recordDetail: vi.fn(async () => ({ children: [] })),
     },
     onContext = vi.fn(),
     onColumns = vi.fn(),
     node = document.createElement('div'),
-    root = createRoot(node)
+    root = createRoot(node),
+    { face } = fakeFace({ connection: connectionOf('columns') })
   const render = (columns: string[]) =>
     root.render(
-      h(
-        RecordsApiContext.Provider,
-        { value: api as never },
-        h(RecordPanel, { kind: 'inventory-item-details', connectionId: 'c', columns, onColumns, onContext }),
-      ),
+      h(RecordPanel, { kind: 'inventory-item-details', api: api as never, face, t, columns, onColumns, onContext }),
     )
   try {
     await act(async () => render(['quantity_on_hand_diff']))
@@ -94,24 +89,18 @@ it('adds a query control without querying and submits the product through the sh
     onContext = vi.fn()
   const node = document.createElement('div'),
     root = createRoot(node),
-    pane = fakePane()
+    pane = fakeFace({ connection: connectionOf('query-control') })
   const render = () =>
     root.render(
-      h(
-        PaneValueContext.Provider,
-        { value: pane.value },
-        h(
-          RecordsApiContext.Provider,
-          { value: api as never },
-          h(RecordPanel, {
-            kind: 'inventory-item-details',
-            connectionId: 'c',
-            columns: ['id'],
-            onColumns: () => {},
-            onContext,
-          }),
-        ),
-      ),
+      h(RecordPanel, {
+        kind: 'inventory-item-details',
+        api: api as never,
+        face: pane.face,
+        t,
+        columns: ['id'],
+        onColumns: () => {},
+        onContext,
+      }),
     )
   const command = (id: string, payload: Record<string, unknown>) =>
     act(async () => {
@@ -145,42 +134,35 @@ it('adds a query control without querying and submits the product through the sh
 it('restores Chat query fields and products on remount, refetches data, and isolates identities', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   localStorage.clear()
-  const { PreferenceScope } = await import('@oryh/dsh-client-frame/client')
   const recordList = vi.fn(async () => ({ rows: [], page: 1, pages: 1, total: 0, fetchedAt: '' })),
     onContext = vi.fn()
   const node = document.createElement('div')
   let root = createRoot(node)
-  const pane = fakePane()
-  const render = (scope: string) =>
+  const pane = fakeFace({ connection: connectionOf('user-a', 'tenant-a') })
+  // The same pane under two identities: what differs is whose preferences the list keeps.
+  const faces = {
+    'tenant-a:user-a': pane.face,
+    'tenant-b:user-a': { ...pane.face, connection: connectionOf('user-a', 'tenant-b') as never },
+  }
+  const api = {
+    recordList,
+    recordFilterFields: vi.fn(async () => [
+      { name: 'inventory_item_id', type: 'string' },
+      { name: 'reason', type: 'string' },
+      { name: 'include_archived_items', type: 'boolean' },
+    ]),
+  }
+  const render = (scope: keyof typeof faces) =>
     root.render(
-      h(
-        PaneValueContext.Provider,
-        { value: pane.value },
-        h(
-          PreferenceScope.Provider,
-          { value: scope },
-          h(
-            RecordsApiContext.Provider,
-            {
-              value: {
-                recordList,
-                recordFilterFields: vi.fn(async () => [
-                  { name: 'inventory_item_id', type: 'string' },
-                  { name: 'reason', type: 'string' },
-                  { name: 'include_archived_items', type: 'boolean' },
-                ]),
-              } as never,
-            },
-            h(RecordPanel, {
-              kind: 'inventory-item-details',
-              connectionId: scope,
-              columns: ['id'],
-              onColumns: () => {},
-              onContext,
-            }),
-          ),
-        ),
-      ),
+      h(RecordPanel, {
+        kind: 'inventory-item-details',
+        api: api as never,
+        face: faces[scope],
+        t,
+        columns: ['id'],
+        onColumns: () => {},
+        onContext,
+      }),
     )
   await act(async () => render('tenant-a:user-a'))
   await act(async () => {
@@ -234,28 +216,22 @@ it('offers only query fields the endpoint declares, and sends their values to th
     { name: 'reason', type: 'string' },
     { name: 'include_archived_items', type: 'boolean' },
   ])
-  // One stable Remote, as useOryhRemote gives the page: a fresh object per render would re-run every query.
+  // One stable Remote, as the plugin's entry gives the page: a fresh object per render would re-run every query.
   const api = { recordList, recordFilterFields }
   const node = document.createElement('div'),
     root = createRoot(node),
-    pane = fakePane()
+    pane = fakeFace({ connection: connectionOf('declared-fields') })
   const render = () =>
     root.render(
-      h(
-        PaneValueContext.Provider,
-        { value: pane.value },
-        h(
-          RecordsApiContext.Provider,
-          { value: api as never },
-          h(RecordPanel, {
-            kind: 'inventory-item-details',
-            connectionId: 'c',
-            columns: ['id'],
-            onColumns: () => {},
-            onContext,
-          }),
-        ),
-      ),
+      h(RecordPanel, {
+        kind: 'inventory-item-details',
+        api: api as never,
+        face: pane.face,
+        t,
+        columns: ['id'],
+        onColumns: () => {},
+        onContext,
+      }),
     )
   try {
     await act(async () => render())
@@ -291,6 +267,32 @@ it('offers only query fields the endpoint declares, and sends their values to th
     // read here would be a wasted call to ORYH, and for a product query up to a hundred of them.
     expect(recordList.mock.calls.map(c => c[0].filters)).toEqual([undefined, { reason: 'sale' }])
 
+    // The conditions of a read the agent made in Chat, with no fields named: the list is queried by those
+    // values alone — what its search box searches by goes there, what it has a field for is shown and
+    // applied, and what it is not queried by is left out.
+    await act(async () => {
+      pane.command({
+        lane: 'navigation',
+        id: 'followed',
+        page: 'inventory-item-details',
+        payload: {
+          target: 'filters',
+          page: 'inventory-item-details',
+          queryValues: { inventory_item_id: 'item-9', include_archived_items: 'true', warehouse_id: 'w-1' },
+        },
+      })
+    })
+    expect(pane.acked()).toContain('followed')
+    expect(recordList.mock.lastCall?.[0]).toMatchObject({
+      query: 'item-9',
+      filters: { include_archived_items: 'true' },
+      page: 1,
+    })
+    expect(onContext.mock.lastCall?.[0]).toMatchObject({
+      queryFields: ['reason', 'include_archived_items'],
+      queryValues: { include_archived_items: 'true' },
+    })
+
     // A command for another list is not this list's to apply.
     const calls = recordList.mock.calls.length
     await act(async () => {
@@ -310,5 +312,107 @@ it('offers only query fields the endpoint declares, and sends their values to th
     expect(pane.acked()).not.toContain('other')
   } finally {
     await act(async () => root.unmount())
+  }
+})
+
+it('reports only a saved view’s actual filters, not products left in the built-in query bar', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const { face } = fakeFace({ connection: connectionOf('view-context-regression') })
+  const scope = columnPreferenceScope(face.connection)
+  localStorage.setItem(
+    `oryh.view.v1:${scope}:inventory-item-details:appliedProducts`,
+    JSON.stringify([{ id: 'p', name: 'Product', code: 'P' }]),
+  )
+  localStorage.setItem(`oryh.view.v1:${scope}:inventory-item-details:queryFields`, JSON.stringify(['product_code']))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  const recordList = vi.fn(async () => ({ rows: [], page: 1, pages: 1, total: 0, fetchedAt: '' }))
+  const onContext = vi.fn()
+  const root = createRoot(document.createElement('div'))
+  try {
+    await act(async () =>
+      root.render(
+        h(RecordPanel, {
+          kind: 'inventory-item-details',
+          api: { recordList } as never,
+          face,
+          t,
+          columns: ['reason'],
+          onColumns: () => {},
+          onContext,
+          view: {
+            id: 'received-view',
+            label: '入库',
+            kind: 'inventory-item-details',
+            filters: { reason: 'received' },
+          },
+        }),
+      ),
+    )
+    expect(recordList.mock.calls.at(-1)?.[0]).toMatchObject({ filters: { reason: 'received' } })
+    const context = onContext.mock.lastCall?.[0]
+    expect(context.productIds).toEqual([])
+    expect(context.queryFields).toEqual(['reason'])
+    expect(context.queryValues).toEqual({ reason: 'received' })
+    expect(JSON.parse(context.content).queryDraft.products).toEqual([])
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+it('defers Chat filter commands and server refreshes while the retained list is hidden', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.clear()
+  const recordList = vi.fn(async () => ({ rows: [], page: 1, pages: 1, total: 0, fetchedAt: '' }))
+  const api = { recordList, recordFilterFields: vi.fn(async () => []) }
+  const pane = fakeFace({ connection: connectionOf('hidden-list') })
+  const node = document.createElement('div')
+  const root = createRoot(node)
+  const render = (active: boolean) =>
+    root.render(
+      h(RecordPanel, {
+        kind: 'inventory-item-details',
+        active,
+        api: api as never,
+        face: pane.face,
+        t,
+        columns: ['id'],
+        onColumns: () => {},
+        onContext: () => {},
+      }),
+    )
+  try {
+    await act(async () => render(true))
+    await act(async () => render(false))
+    await act(async () =>
+      pane.command({
+        lane: 'navigation',
+        id: 'hidden-filter',
+        page: 'inventory-item-details',
+        payload: {
+          target: 'filters',
+          page: 'inventory-item-details',
+          queryFields: ['product_code'],
+        },
+      }),
+    )
+    expect(pane.acked()).toEqual([])
+    expect(node.textContent).not.toContain('产品（多选）')
+    expect(recordList).toHaveBeenCalledTimes(1)
+    // A still-valid command is applied only once its target is actually visible.
+    await act(async () => render(true))
+    expect(pane.acked()).toEqual(['hidden-filter'])
+    expect(node.textContent).toContain('产品（多选）')
+    expect(recordList).toHaveBeenCalledTimes(1)
+    await act(async () => pane.publish({ commands: [] }))
+    await act(async () => render(false))
+    await act(async () => pane.state({ serverChange: { id: 'write-1', at: Date.now() } }))
+    expect(recordList).toHaveBeenCalledTimes(1)
+    await act(async () => render(true))
+    expect(recordList).toHaveBeenCalledTimes(2)
+    await act(async () => render(true))
+    expect(recordList).toHaveBeenCalledTimes(2)
+  } finally {
+    await act(async () => root.unmount())
+    localStorage.clear()
   }
 })

@@ -71,11 +71,16 @@ export class ConnectionRegistry {
     const connection = this.require(connectionId)
     if (!this.#verified.has(connectionId)) {
       throw new OryhClientError(
-        'The ORYH connection must be verified before a business operation can run.',
+        'The ORYH connection has not been verified yet. Please try again shortly.',
         'connection-verification-required',
       )
     }
     return connection
+  }
+
+  /** Whether the current Host process verified this connection and has not revoked it since. */
+  isVerified(connectionId: ConnectionId): boolean {
+    return this.#verified.has(connectionId)
   }
 
   /** Freeze business access before revalidation or credential removal begins. */

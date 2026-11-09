@@ -22,9 +22,11 @@ Open `http://127.0.0.1:4180/` and you are sent to ORYH to sign in. Sign in with 
 and you land in the workbench with the enterprise connection already made — there is no device code to
 enter. While the browser cookie lasts, opening the address again takes you straight in.
 
-- **The first ORYH account to sign in is the one this container belongs to.** This is a single-user
-  client; another account signing in afterwards is refused, so that nobody inherits the previous person's
-  sessions and data. To hand the container to someone else, delete the data volume and start again (below).
+- **This is a single-user client: it belongs to one ORYH account at a time**, and the first account to
+  sign in is that account. To hand the container to another account, use "切换账号" beside the company
+  name in the workbench header, or the button offered when another account's sign-in is refused; the old
+  account's credential on this machine is then forgotten, its sessions stay in the list and cannot be
+  continued, and each account keeps its own custom pages and menu entries. The data volume stays.
 - The same account signing in again refreshes that connection's credential rather than adding a second one.
 - The ORYH address comes from `ORYH_SERVER_ORIGIN` in `.env`, and points at your ORYH deployment.
 

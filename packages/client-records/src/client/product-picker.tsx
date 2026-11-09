@@ -1,16 +1,11 @@
+import { Button, Dialog, Input, type PageFace } from '@oryh/ai-client-kit'
 import type { ProductOption, ProductOptions } from '@oryh/ai-client-records'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-  Input,
-} from '@oryh/dsh-client-frame/client'
 import { useEffect, useState } from 'react'
-import { useRecordsApi } from './api.js'
+import type { RecordsApi } from './api.js'
+import type { Words } from './words.js'
+
+/** How many products one query may be narrowed to. */
+const LIMIT = 50
 
 const SearchIcon = () => (
   <svg
@@ -27,15 +22,19 @@ const SearchIcon = () => (
   </svg>
 )
 export function ProductPicker({
-  connectionId,
+  api,
+  face,
+  t,
   value,
   onChange,
 }: {
-  connectionId: string
+  api: RecordsApi
+  face: PageFace
+  t: Words
   value: ProductOption[]
   onChange: (value: ProductOption[]) => void
 }) {
-  const api = useRecordsApi()
+  const connectionId = face.connection.id
   const [open, setOpen] = useState(false),
     [draft, setDraft] = useState<ProductOption[]>([]),
     [query, setQuery] = useState(''),
@@ -58,7 +57,7 @@ export function ProductPicker({
         if (live) setData(v)
       })
       .catch(e => {
-        if (live) setError(e instanceof Error ? e.message : '产品搜索失败')
+        if (live) setError(e instanceof Error ? e.message : t('pickerSearchFailed'))
       })
       .finally(() => {
         if (live) setBusy(false)
@@ -77,8 +76,8 @@ export function ProductPicker({
   return (
     <div className="product-picker">
       <div className="product-picker-control">
-        <span>{value.length ? `已选 ${value.length} 个产品` : '全部产品'}</span>
-        <Button type="button" appearance="subtle" aria-label="搜索并选择产品" onClick={show}>
+        <span>{value.length ? t('pickerSelected', { count: value.length }) : t('pickerAll')}</span>
+        <Button type="button" variant="ghost" aria-label={t('pickerOpen')} onClick={show}>
           <SearchIcon />
         </Button>
       </div>
@@ -89,7 +88,7 @@ export function ProductPicker({
               {p.code || p.name}
               <button
                 type="button"
-                aria-label={`移除 ${p.name}`}
+                aria-label={t('pickerRemove', { name: p.name })}
                 onClick={() => onChange(value.filter(v => v.id !== p.id))}
               >
                 ×
@@ -98,110 +97,111 @@ export function ProductPicker({
           ))}
         </div>
       )}
-      <Dialog open={open} onOpenChange={(_, d) => setOpen(d.open)}>
-        <DialogSurface className="product-picker-dialog">
-          <DialogBody>
-            <DialogTitle>选择产品</DialogTitle>
-            <DialogContent>
-              <form
-                className="product-picker-search"
-                onSubmit={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setSearch(query.trim())
-                  setPage(1)
-                  setReload(v => v + 1)
-                }}
-              >
-                <Input
-                  aria-label="搜索产品名称或编码"
-                  placeholder="输入产品名称或编码"
-                  value={query}
-                  onChange={(_, d) => setQuery(d.value)}
-                  maxLength={200}
-                />
-                <Button type="submit" disabled={busy}>
-                  搜索
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t('pickerTitle')}
+        closeLabel={face.frame.t('dialogClose')}
+        className="oryh-dialog-wide product-picker-dialog"
+        actions={
+          <>
+            <Button type="button" onClick={() => setOpen(false)}>
+              {t('pickerCancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => {
+                onChange(draft)
+                setOpen(false)
+              }}
+            >
+              {t('pickerConfirm', { count: draft.length })}
+            </Button>
+          </>
+        }
+      >
+        <form
+          className="product-picker-search"
+          onSubmit={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            setSearch(query.trim())
+            setPage(1)
+            setReload(v => v + 1)
+          }}
+        >
+          <Input
+            aria-label={t('pickerSearchLabel')}
+            placeholder={t('pickerSearchPlaceholder')}
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            maxLength={200}
+          />
+          <Button type="submit" disabled={busy}>
+            {t('pickerSearchButton')}
+          </Button>
+        </form>
+        <div className="product-picker-selection">
+          <span>{t('pickerDraftCount', { count: draft.length, limit: LIMIT })}</span>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setDraft([])}>
+            {t('pickerClear')}
+          </Button>
+        </div>
+        {draft.length > 0 && (
+          <div className="product-chips">
+            {draft.map(p => (
+              <span key={p.id} className="product-chip">
+                {p.code || p.name}
+                <button
+                  type="button"
+                  aria-label={t('pickerUnselect', { name: p.name })}
+                  onClick={() => setDraft(v => v.filter(x => x.id !== p.id))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {error && <p role="alert">{error}</p>}
+        {busy ? (
+          <p role="status">{t('pickerSearching')}</p>
+        ) : (
+          data && (
+            <>
+              <div className="product-picker-results">
+                {data.rows.map(p => (
+                  <label className="product-picker-row" key={p.id}>
+                    <input
+                      type="checkbox"
+                      checked={draft.some(v => v.id === p.id)}
+                      disabled={draft.length >= LIMIT && !draft.some(v => v.id === p.id)}
+                      onChange={e => setDraft(v => (e.target.checked ? [...v, p] : v.filter(x => x.id !== p.id)))}
+                    />
+                    <span>
+                      <strong>{p.name}</strong>
+                      <small>{p.code || t('pickerNoCode')}</small>
+                    </span>
+                  </label>
+                ))}
+                {!data.rows.length && <p>{t('pickerNoMatch')}</p>}
+              </div>
+              <div className="product-picker-pagination">
+                <span>{t('pickerTotal', { count: data.total })}</span>
+                <Button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  {face.frame.t('footerPrevious')}
                 </Button>
-              </form>
-              <div className="product-picker-selection">
-                <span>已选 {draft.length} / 50</span>
-                <Button type="button" appearance="subtle" size="small" onClick={() => setDraft([])}>
-                  清空选择
+                <span>
+                  {page} / {data.pages}
+                </span>
+                <Button type="button" disabled={page >= data.pages} onClick={() => setPage(p => p + 1)}>
+                  {face.frame.t('footerNext')}
                 </Button>
               </div>
-              {draft.length > 0 && (
-                <div className="product-chips">
-                  {draft.map(p => (
-                    <span key={p.id} className="product-chip">
-                      {p.code || p.name}
-                      <button
-                        type="button"
-                        aria-label={`取消选择 ${p.name}`}
-                        onClick={() => setDraft(v => v.filter(x => x.id !== p.id))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {error && <p role="alert">{error}</p>}
-              {busy ? (
-                <p role="status">正在搜索产品…</p>
-              ) : (
-                data && (
-                  <>
-                    <div className="product-picker-results">
-                      {data.rows.map(p => (
-                        <label className="product-picker-row" key={p.id}>
-                          <input
-                            type="checkbox"
-                            checked={draft.some(v => v.id === p.id)}
-                            disabled={draft.length >= 50 && !draft.some(v => v.id === p.id)}
-                            onChange={e => setDraft(v => (e.target.checked ? [...v, p] : v.filter(x => x.id !== p.id)))}
-                          />
-                          <span>
-                            <strong>{p.name}</strong>
-                            <small>{p.code || '无产品编码'}</small>
-                          </span>
-                        </label>
-                      ))}
-                      {!data.rows.length && <p>没有匹配的产品</p>}
-                    </div>
-                    <div className="product-picker-pagination">
-                      <span>共 {data.total} 个产品</span>
-                      <Button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
-                        上一页
-                      </Button>
-                      <span>
-                        {page} / {data.pages}
-                      </span>
-                      <Button type="button" disabled={page >= data.pages} onClick={() => setPage(p => p + 1)}>
-                        下一页
-                      </Button>
-                    </div>
-                  </>
-                )
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button type="button" onClick={() => setOpen(false)}>
-                取消
-              </Button>
-              <Button
-                type="button"
-                appearance="primary"
-                onClick={() => {
-                  onChange(draft)
-                  setOpen(false)
-                }}
-              >
-                确定选择（{draft.length}）
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
+            </>
+          )
+        )}
       </Dialog>
     </div>
   )

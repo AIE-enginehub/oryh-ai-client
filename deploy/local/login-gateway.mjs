@@ -9,7 +9,9 @@
 // It does not weaken DSH: the gateway obtains DSH's own session cookie with the launch token it
 // alone reads from DSH's output, and every other request is passed through untouched, so DSH still
 // checks Host, Origin and that cookie. The first person to sign in owns this single-user container;
-// a different ORYH account is refused rather than handed their sessions.
+// a different ORYH account is refused rather than handed their sessions. Where the deployment allows it
+// (ORYH_ACCOUNT_SWITCH=1), the person signed in here may hand the container to another account of theirs
+// at /oryh/switch: still one user at a time, and only from a browser this gateway already let in.
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -23,14 +25,17 @@ const PUBLIC_HOSTS = (env.ORYH_PUBLIC_HOSTS ?? '127.0.0.1:4180,localhost:4180')
   .split(',')
   .map(host => host.trim().toLowerCase())
   .filter(Boolean)
-// Kept short on purpose: ORYH stores the consent request's parameters joined with `|` in a
-// varchar(128) column, and a longer request fails there with a 500 after the person signs in.
+// ORYH takes an https URL as the client id, and sends the browser back to that host or to a loopback address.
 const CLIENT_ID = env.ORYH_OAUTH_CLIENT_ID ?? 'https://oryh.ai'
-const CONSENT_LIMIT = 128
 const LISTEN_PORT = Number(env.GATEWAY_PORT ?? 4173)
 const DSH_PORT = Number(env.DSH_PORT ?? 4174)
 const HANDOFF = required('ORYH_CREDENTIAL_HANDOFF')
 const OWNER = required('ORYH_CONTAINER_OWNER')
+const SWITCH = env.ORYH_ACCOUNT_SWITCH === '1'
+// Published on this machine only: whoever opens it is at its keyboard. There the person may switch
+// accounts without first signing in as the old one — they may no longer be able to, and being sent to do
+// it is where someone with two accounts got stuck. Published wider, only a browser already let in may.
+const LOOPBACK_ONLY = PUBLIC_HOSTS.every(host => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host))
 const STATE_COOKIE = 'oryh-login'
 const LOGIN_TTL_MS = 10 * 60 * 1000
 
@@ -93,9 +98,11 @@ const server = http.createServer((req, res) => {
         ? login
         : url.pathname === '/oryh/callback'
           ? callback
-          : req.method === 'GET' && url.pathname === '/' && !url.searchParams.has('token')
-            ? index
-            : proxy
+          : url.pathname === '/oryh/switch'
+            ? switchAccount
+            : req.method === 'GET' && url.pathname === '/' && !url.searchParams.has('token')
+              ? index
+              : proxy
   Promise.resolve(route(req, res, url)).catch(error => {
     console.error('login gateway:', error instanceof Error ? error.message : error)
     if (!res.headersSent) page(res, 502, '暂时无法登录', '登录服务出错，请稍后重试。', true)
@@ -160,28 +167,61 @@ function health(_req, res) {
   probe.end()
 }
 
-function login(req, res) {
+/** Whether DSH already recognises this browser, which is what this gateway's sign-in gave it. */
+function signedIn(req) {
+  return new Promise(resolve => {
+    const probe = http.request(
+      {
+        host: '127.0.0.1',
+        port: DSH_PORT,
+        method: 'GET',
+        path: '/',
+        headers: { host: req.headers.host ?? '', cookie: req.headers.cookie ?? '' },
+      },
+      answer => {
+        answer.resume()
+        resolve(answer.statusCode === 200)
+      },
+    )
+    probe.on('error', () => resolve(false))
+    probe.end()
+  })
+}
+
+/** Whether this browser may change who the container belongs to. */
+async function maySwitch(req) {
+  return LOOPBACK_ONLY || (await signedIn(req))
+}
+
+/** Says what switching does and who is signed in, before ORYH is asked who comes next. */
+async function switchAccount(req, res) {
+  if (!SWITCH) return page(res, 404, '不能切换账号', '这个客户端没有开启切换账号。', false)
+  if (!(await maySwitch(req))) {
+    res.writeHead(303, { location: '/oryh/login', 'cache-control': 'no-store' })
+    return res.end()
+  }
+  const owner = readOwner()
+  page(
+    res,
+    200,
+    '切换账号',
+    `当前账号：${escape(owner?.email ?? '未知')}。<br>这个客户端同一时间只属于一个账号。切换后，原账号在本机的 ORYH 凭据会被清除；已有的会话和工作区文件会保留；原账号的会话在新账号下不能继续。<br>请先在 <a href="${escape(ORYH)}/" target="_blank" rel="noreferrer">ORYH</a> 里登录要换成的账号，再点下面的按钮。不换了就<a href="/">返回</a>。`,
+    { href: '/oryh/login?switch=1', label: '用 ORYH 当前登录的账号继续' },
+  )
+}
+
+async function login(req, res, url) {
   const host = publicHost(req)
   if (!host)
     return page(res, 400, '无法登录', '请通过 ' + PUBLIC_HOSTS.map(h => `http://${h}/`).join(' 或 ') + ' 访问。', false)
   const now = Date.now()
   for (const [key, entry] of pending) if (entry.expires < now) pending.delete(key)
-  // 96 bits: the state only has to be unguessable for ten minutes, and it is also bound to a cookie.
-  const state = randomBytes(12).toString('base64url')
+  const state = token()
   const verifier = token()
   const redirectUri = `http://${host}/oryh/callback`
   const challenge = createHash('sha256').update(verifier).digest('base64url')
-  const consent = ['code', CLIENT_ID, redirectUri, challenge, 'S256', state, '', ''].join('|')
-  if (consent.length > CONSENT_LIMIT) {
-    return page(
-      res,
-      500,
-      '无法登录',
-      `登录参数超出 ORYH 的长度限制（${consent.length} > ${CONSENT_LIMIT}），请缩短 ORYH_OAUTH_CLIENT_ID 或访问地址。`,
-      false,
-    )
-  }
-  pending.set(state, { verifier, redirectUri, expires: now + LOGIN_TTL_MS })
+  const switching = SWITCH && url.searchParams.get('switch') === '1' && (await maySwitch(req))
+  pending.set(state, { verifier, redirectUri, expires: now + LOGIN_TTL_MS, switching })
   log(`login: redirecting to ORYH authorize (callback ${redirectUri})`)
   const authorize = new URL('/oauth/authorize', ORYH)
   for (const [key, value] of Object.entries({
@@ -243,27 +283,34 @@ async function callback(req, res, url) {
   const principal = { origin: ORYH, tenantId: String(me.tenant_id ?? ''), userId: String(me.id ?? '') }
   if (!principal.tenantId || !principal.userId) throw new Error('ORYH returned no identity')
   const owner = readOwner()
-  if (
+  const another =
     owner &&
     (owner.origin !== principal.origin || owner.tenantId !== principal.tenantId || owner.userId !== principal.userId)
-  ) {
+  if (another && !entry.switching) {
     await fetch(new URL('/oauth/revoke', ORYH), {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token: tokens.refresh_token }),
       redirect: 'error',
     }).catch(() => {})
-    return page(
-      res,
-      403,
-      '这个客户端属于其他账号',
-      `这是 ${escape(owner.email ?? '另一个 ORYH 账号')} 的单用户客户端，请用该账号登录。`,
-      true,
-    )
+    const whose = escape(owner.email ?? '另一个 ORYH 账号')
+    // Where the person may switch, the way to do it is offered here, where they found out they need it.
+    return SWITCH && (await maySwitch(req))
+      ? page(
+          res,
+          403,
+          '这个客户端属于其他账号',
+          `这是 ${whose} 的单用户客户端，你在 ORYH 登录的是 ${escape(me.email ?? '另一个账号')}。<br>要继续用 ${whose}，请在 <a href="${escape(ORYH)}/" target="_blank" rel="noreferrer">ORYH</a> 里换回该账号再登录。<br>要把这个客户端换成当前账号，点下面的按钮：原账号在本机的 ORYH 凭据会被清除；已有的会话会保留，原账号的会话在新账号下不能继续。`,
+          { href: '/oryh/login?switch=1', label: `换成 ${escape(me.email ?? '当前账号')}` },
+        )
+      : page(res, 403, '这个客户端属于其他账号', `这是 ${whose} 的单用户客户端，请用该账号登录。`, true)
   }
-  if (!owner) writePrivate(OWNER, { ...principal, email: me.email ?? null })
+  if (!owner || another) writePrivate(OWNER, { ...principal, email: me.email ?? null })
+  if (another) log('callback: the container was handed to another account')
   writePrivate(HANDOFF, {
     origin: ORYH,
+    // One owner at a time: the Host forgets any connection that is not this person's.
+    sole: true,
     accessKey: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt:
@@ -272,13 +319,18 @@ async function callback(req, res, url) {
   log('callback: ORYH identity verified, credential handed to the client')
   const session = await dshSession(publicHost(req))
   log('callback: DSH session issued, returning to the workbench')
-  res.writeHead(303, {
-    location: '/',
+  // DSH's cookie is SameSite=Strict, and this response ends a redirect chain that began at ORYH: a 303
+  // to / would stay in that cross-site chain and arrive without the cookie. A page of our own that moves
+  // on by itself starts a same-site navigation, which carries it.
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
     'referrer-policy': 'no-referrer',
     'set-cookie': [...session, `${STATE_COOKIE}=; Path=/oryh; Max-Age=0; HttpOnly; SameSite=Lax`],
   })
-  res.end()
+  res.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>正在进入 · ORYH AI Client</title>
+<body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f5;color:#222">
+<p>已登录，正在进入工作台……<a href="/">没有跳转请点这里</a></p></body></html>`)
 }
 
 /** Exchange DSH's launch token for its session cookie, bound to the browser's own Host. */
@@ -343,11 +395,12 @@ function escape(text) {
 }
 
 function page(res, status, title, message, retry) {
+  const action = retry === true ? { href: '/oryh/login', label: '使用 ORYH 登录' } : retry
   res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
   res.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · ORYH AI Client</title>
 <body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f5;color:#222">
 <main style="background:#fff;padding:32px 40px;border-radius:8px;box-shadow:0 1px 4px #0002;max-width:420px">
 <h1 style="font-size:20px;margin:0 0 12px">${title}</h1><p style="line-height:1.6">${message}</p>
-${retry ? '<p><a href="/oryh/login" style="display:inline-block;background:#0f6cbd;color:#fff;padding:8px 20px;border-radius:4px;text-decoration:none">使用 ORYH 登录</a></p>' : ''}
+${action ? `<p><a href="${action.href}" style="display:inline-block;background:#0f6cbd;color:#fff;padding:8px 20px;border-radius:4px;text-decoration:none">${action.label}</a></p>` : ''}
 </main></body></html>`)
 }

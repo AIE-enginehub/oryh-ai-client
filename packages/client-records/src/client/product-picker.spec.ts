@@ -1,23 +1,12 @@
 // @vitest-environment jsdom
 
+import { fakeFace, wordsOf } from '@oryh/ai-client-kit/testing'
 import { act, createElement as h } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-import { RecordsApiContext } from './api.js'
 import { ProductPicker } from './product-picker.js'
+import { words } from './words.js'
 
-vi.mock('@fluentui/react-components', () => ({
-  Button: ({ appearance, size, children, ...props }: any) => h('button', props, children),
-  Input: ({ onChange, ...props }: any) =>
-    h('input', { ...props, onChange: (e: any) => onChange?.(e, { value: e.target.value }) }),
-  Dialog: ({ open, children }: any) => (open ? h('div', { role: 'dialog' }, children) : null),
-  ...Object.fromEntries(
-    ['DialogSurface', 'DialogBody', 'DialogTitle', 'DialogContent', 'DialogActions'].map(n => [
-      n,
-      ({ children }: any) => h('div', null, children),
-    ]),
-  ),
-}))
 it('keeps cross-page choices, commits only on confirm, and discards cancelled edits', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const a = { id: 'a', name: 'Product A', code: 'A' },
@@ -25,28 +14,24 @@ it('keeps cross-page choices, commits only on confirm, and discards cancelled ed
     value = [a]
   const productSearch = vi.fn(async q => ({ rows: q.page === 1 ? [a] : [b], total: 2, pages: 2 })),
     onChange = vi.fn()
+  const { face } = fakeFace({ connection: { id: 'c' } })
   const node = document.createElement('div'),
     root = createRoot(node)
   const click = async (text: string) =>
     act(async () =>
-      Array.from(node.querySelectorAll('button'))
+      // The dialog is drawn at the end of the document, not inside the field that opens it.
+      [...node.querySelectorAll('button'), ...document.querySelectorAll('[role=dialog] button')]
         .find(b => b.textContent === text)!
         .click(),
     )
   try {
     await act(async () =>
-      root.render(
-        h(
-          RecordsApiContext.Provider,
-          { value: { productSearch } as never },
-          h(ProductPicker, { connectionId: 'c', value, onChange }),
-        ),
-      ),
+      root.render(h(ProductPicker, { api: { productSearch } as never, face, t: wordsOf(words), value, onChange })),
     )
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="搜索并选择产品"]')!.click())
-    expect(node.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(true)
+    expect(document.querySelector<HTMLInputElement>('[role=dialog] input[type=checkbox]')!.checked).toBe(true)
     await click('下一页')
-    await act(async () => node.querySelector<HTMLInputElement>('input[type=checkbox]')!.click())
+    await act(async () => document.querySelector<HTMLInputElement>('[role=dialog] input[type=checkbox]')!.click())
     expect(onChange).not.toHaveBeenCalled()
     await click('确定选择（2）')
     expect(onChange).toHaveBeenCalledWith([a, b])

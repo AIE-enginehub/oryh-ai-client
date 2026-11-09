@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient } from '../src/index.js'
+import {
+  ConnectionRegistry,
+  KeychainCredentialVault,
+  MemoryCredentialVault,
+  OryhHttpClient,
+  pageOperation,
+} from '../src/index.js'
 import { header, jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 function identity() {
@@ -21,6 +27,98 @@ function identity() {
 }
 
 describe('OryhHttpClient', () => {
+  it('reconciles a cached native credential before rotating, preserving another Host’s newer refresh token', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    let stored: string | null = JSON.stringify({ accessKey: 'expired', refreshToken: 'old-r', expiresAt: null })
+    let reads = 0
+    const credentials = new KeychainCredentialVault({
+      entryFactory: () => ({
+        getPassword: () => {
+          reads += 1
+          return stored
+        },
+        setPassword: value => {
+          stored = value
+        },
+        deleteCredential: () => {
+          stored = null
+          return true
+        },
+      }),
+    })
+    await credentials.read(connection.id)
+    // Another Host rotated the persisted pair after this Host loaded its snapshot.
+    stored = JSON.stringify({ accessKey: 'fresh', refreshToken: 'new-r', expiresAt: null })
+    const fetcher = new ScriptedFetcher([
+      jsonResponse(401, { detail: 'API key expired' }),
+      jsonResponse(200, { data: [] }),
+    ])
+    const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
+    await expect(client.request(connection.id, { path: '/projects' })).resolves.toEqual({ data: [] })
+    expect(fetcher.calls.map(call => call.input)).toEqual([
+      'https://oryh.example/api/v1/projects',
+      'https://oryh.example/api/v1/projects',
+    ])
+    expect(header(fetcher.calls[1]!.init, 'X-API-Key')).toBe('fresh')
+    expect(reads).toBe(2)
+  })
+
+  it("sends a confirmed write under ORYH's idempotency key, and a read without one", async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh', expiresAt: null })
+    const fetcher = new ScriptedFetcher([jsonResponse(200, { data: {} }), jsonResponse(200, { data: [] })])
+    const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
+
+    const write = { method: 'POST' as const, path: '/projects' as const, body: { name: 'A' } }
+    await client.request(connection.id, {
+      ...write,
+      operation: pageOperation('op-1', write, text => `sha-${text.length}`),
+    })
+    await client.request(connection.id, { path: '/projects' })
+
+    expect(header(fetcher.calls[0]!.init, 'idempotency-key')).toBe('op-1')
+    expect(header(fetcher.calls[1]!.init, 'idempotency-key')).toBeUndefined()
+  })
+
+  it('sends nothing for a call already stopped, and ends one in flight with its own signal', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh', expiresAt: null })
+    const fetcher = new ScriptedFetcher([jsonResponse(200, { data: {} })])
+    const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
+
+    const stopped = new AbortController()
+    stopped.abort()
+    const write = { method: 'POST' as const, path: '/projects' as const, body: { name: 'A' } }
+    await expect(client.request(connection.id, { ...write, signal: stopped.signal })).rejects.toThrow()
+    expect(fetcher.calls).toHaveLength(0)
+
+    const live = new AbortController()
+    await client.request(connection.id, { ...write, signal: live.signal })
+    const sent = fetcher.calls[0]!.init.signal as AbortSignal
+    expect(sent.aborted).toBe(false)
+    live.abort()
+    expect(sent.aborted).toBe(true)
+  })
+
+  it("tells a person ORYH refused them in words they can act on, without echoing ORYH's own", async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh', expiresAt: null })
+    const fetcher = new ScriptedFetcher([jsonResponse(403, { detail: 'missing verb inventory.manage for key ak_123' })])
+    const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
+    // This is what stands between a person and a list ORYH does not let them read: no rule of this client's does.
+    const refused = client.request(connection.id, { path: '/inventory-items' })
+    await expect(refused).rejects.toMatchObject({ code: 'request-failed', status: 403 })
+    await expect(refused).rejects.toThrow('ORYH 没有允许当前账号读取或办理这项内容')
+    await expect(refused).rejects.not.toThrow(/ak_123|inventory\.manage/)
+  })
+
   it('refreshes an expired interactive key exactly once before retrying the request', async () => {
     const connections = new ConnectionRegistry()
     const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
@@ -57,6 +155,34 @@ describe('OryhHttpClient', () => {
       accessKey: 'fresh-access-key',
       refreshToken: 'fresh-refresh-token',
       expiresAt: null,
+    })
+  })
+
+  it('reports a failed refresh by status before parsing a non-JSON body', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, {
+      accessKey: 'expired-access-key',
+      refreshToken: 'refresh-token',
+      expiresAt: null,
+    })
+    const fetcher = new ScriptedFetcher([
+      jsonResponse(401, { detail: 'API key expired — POST /auth/token/refresh' }),
+      {
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError('Unexpected token <')
+        },
+      },
+    ])
+    const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
+
+    await expect(client.request(connection.id, { path: '/projects' })).rejects.toMatchObject({
+      message: 'ORYH credential refresh failed.',
+      code: 'refresh-failed',
+      status: 502,
     })
   })
 
@@ -157,33 +283,5 @@ describe('OryhHttpClient', () => {
       { data: [], meta: { total: 0 } },
     ])
     expect(refreshCalls).toBe(1)
-  })
-})
-
-describe('safe timesheet conflict explanations', () => {
-  const id = '88809fbe-02a1-4327-97fb-d2550bf75467'
-  const existing = `timesheet header ${id} already covers period 2026-08-31..2026-09-04 for employee ${id}`
-  it.each([
-    [existing, '/timesheet-headers?validate_only=true', '已有工时单'],
-    [
-      `deleted timesheet header ${id} still holds period 2026-08-31..2026-09-04 for employee ${id}; restore it instead of recreating`,
-      '/timesheet-headers',
-      '恢复原单据',
-    ],
-    [existing + ' secret-access-key', '/timesheet-headers', 'status 409'],
-    [existing, '/projects', 'status 409'],
-    ['secret-access-key', '/timesheet-headers', 'status 409'],
-  ])('maps only known conflict shapes without echoing response data', async (detail, path, message) => {
-    const connections = new ConnectionRegistry(),
-      credentials = new MemoryCredentialVault()
-    const c = connections.add({ origin: 'https://oryh.example', identity: identity() })
-    await credentials.write(c.id, { accessKey: 'secret-access-key', refreshToken: 'secret-refresh', expiresAt: null })
-    const client = new OryhHttpClient(connections, credentials, async () => jsonResponse(409, { detail }))
-    const error = await client
-      .request(c.id, { path: path as `/${string}`, method: 'POST', retryExpired: false })
-      .catch(e => e)
-    expect(error.message).toContain(message)
-    expect(error.message).not.toContain('secret-access-key')
-    expect(error.message).not.toContain(id)
   })
 })

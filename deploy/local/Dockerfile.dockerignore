@@ -6,6 +6,10 @@
 **/lib
 **/dist
 **/.env*
+# Never in an image: deployment secrets and private operations notes kept beside the source.
+**/secret.env
+**/.ops-private
+**/.claude
 **/.dsh
 **/.agents
 **/.codex
@@ -16,3 +20,5 @@
 **/*.pem
 **/*.key
 **/docs/evidence
+
+**/.workbuddy

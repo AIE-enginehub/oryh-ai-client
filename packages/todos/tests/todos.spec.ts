@@ -28,6 +28,10 @@ const service = (overrides: { todo?: Record<string, unknown>; detail?: Record<st
   const http: TodoHttp = {
     request: async (_id, request) => {
       calls.push(request.path)
+      if (request.path === '/builtin-object-types')
+        return {
+          data: [{ object_type: 'sales_quotations', path: '/sales-quotations', also_called: ['sales_quotation'] }],
+        }
       return {
         data: request.path.startsWith('/todos/') ? { ...todo, ...overrides.todo } : { ...detail, ...overrides.detail },
       }
@@ -44,13 +48,14 @@ const service = (overrides: { todo?: Record<string, unknown>; detail?: Record<st
 }
 
 describe('todo detail projection', () => {
-  // The allowlist is what keeps credentials and custom fields out of chat, so it is asserted
-  // directly here rather than only through the core integration spec.
-  it('projects allowlisted business facts and omits credentials, custom fields and attachments', async () => {
+  // The withheld categories are what keep credentials and custom fields out of chat, so they are
+  // asserted directly here rather than only through the core integration spec.
+  it('projects business facts and omits credentials, custom fields and attachments', async () => {
     const { service: read, calls } = service()
     const document = await read.read('c', 'todo')
     expect(document.entityType).toBe('sales_quotation')
-    expect(calls[1]).toBe('/sales-quotations/q/detail')
+    expect(calls[1]).toBe('/builtin-object-types')
+    expect(calls[2]).toBe('/sales-quotations/q/detail')
     const json = JSON.stringify(document)
     expect(json).toContain('QT-1')
     expect(json).toContain('设备')
@@ -63,10 +68,11 @@ describe('todo detail projection', () => {
     await expect(read.read('c', 'todo')).rejects.toThrow(/当前员工/)
     expect(calls).toHaveLength(1)
   })
-  it('refuses an unregistered entity type instead of building a path from it', async () => {
+  it('refuses an entity type ORYH does not list instead of building a path from it', async () => {
     const { service: read, calls } = service({ todo: { entity_type: 'https://evil.invalid' } })
-    await expect(read.read('c', 'todo')).rejects.toThrow(/尚未接入/)
-    expect(calls).toHaveLength(1)
+    await expect(read.read('c', 'todo')).rejects.toThrow(/对象目录里没有/)
+    // The todo and the catalogue, and nothing built from the entity type.
+    expect(calls).toEqual(['/todos/todo', '/builtin-object-types'])
   })
   it('refuses a linked document whose identity does not match the todo', async () => {
     const { service: read } = service({ detail: { quotation: { id: 'other' } } })

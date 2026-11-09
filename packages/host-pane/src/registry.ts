@@ -3,6 +3,7 @@ import { mkdir, open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type ConnectionId, type IdentityScope, OryhClientError } from '@oryh/ai-client-foundation'
 import type { PageId } from '@oryh/ai-client-pages'
+import { timeZoneOf } from './clock.js'
 import type { PaneContext, PaneSync } from './types.js'
 
 /** How many acknowledged command ids a session remembers; a tool waits on one at a time. */
@@ -24,6 +25,8 @@ export interface PaneSession {
   readonly context?: PaneContext
   /** Ids of the commands the page has carried out, newest last. */
   readonly acks: readonly string[]
+  /** The zone the person's browser last reported; kept across syncs that say nothing usable. */
+  readonly timeZone?: string
 }
 
 /**
@@ -36,10 +39,35 @@ export interface PaneSession {
  */
 export class PaneRegistry {
   readonly #sessions = new Map<string, PaneSession>()
+  /** Sessions that read another's pane: a run a page started on that session's behalf. */
+  readonly #standIns = new Map<string, string>()
   constructor(private readonly directory: string) {}
 
   get(sessionId: string): PaneSession | undefined {
-    return this.#sessions.get(sessionId)
+    return this.#sessions.get(this.#standIns.get(sessionId) ?? sessionId)
+  }
+
+  /**
+   * Let one session read the pane of another, for as long as it works on that session's behalf.
+   *
+   * A review a page starts runs in a session of its own, and what it reviews is on the pane of the
+   * session that asked: its tools read "the page" and "the enterprise" by their own session's id. The
+   * stand-in is read-only by what it is given to call, not by this: nothing is bound or pinned for it,
+   * and a sync or an acknowledgement is always the real session's.
+   * @param sessionId - the session standing in.
+   * @param of - the session whose pane it reads.
+   * @returns ends the arrangement.
+   */
+  standIn(sessionId: string, of: string): () => void {
+    this.#standIns.set(sessionId, of)
+    return () => {
+      if (this.#standIns.get(sessionId) === of) this.#standIns.delete(sessionId)
+    }
+  }
+
+  /** Whether this session reads another's pane by that arrangement. */
+  standsIn(sessionId: string): boolean {
+    return this.#standIns.has(sessionId)
   }
 
   /**
@@ -75,6 +103,7 @@ export class PaneRegistry {
       throw new OryhClientError('页面版本无效。', 'request-failed')
     if (current.instance === sync.instance && current.revision >= sync.revision) return undefined
     const acks = [...(current.instance === sync.instance ? current.acks : []), ...(sync.acks ?? []).map(a => a.id)]
+    const timeZone = timeZoneOf(sync.timeZone) ?? current.timeZone
     const next: PaneSession = {
       connectionId: current.connectionId,
       scope: current.scope,
@@ -83,6 +112,7 @@ export class PaneRegistry {
       page: sync.page,
       ...(sync.context === undefined ? {} : { context: structuredClone(sync.context) }),
       acks: acks.slice(-ACK_MEMORY),
+      ...(timeZone === undefined ? {} : { timeZone }),
     }
     this.#sessions.set(sessionId, next)
     return next
@@ -100,6 +130,7 @@ export class PaneRegistry {
 
   clear(): void {
     this.#sessions.clear()
+    this.#standIns.clear()
   }
 
   /**

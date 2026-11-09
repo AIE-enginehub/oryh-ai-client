@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-todos'
-import { type PaneService, textOutput } from '@oryh/dsh-pane'
+import { type PaneService, reveal, SHOW_PARAMETER, textOutput } from '@oryh/dsh-pane'
 
 const fail = (text: string) => new OryhClientError(text, 'request-failed')
 
@@ -40,7 +40,13 @@ export class TodoChat {
   }
 
   /** Open the todo at a visible position, once the pane shows it; returns its linked document. */
-  async openTodo(sessionId: string, position: number, revision: string, signal: AbortSignal): Promise<TodoDocument> {
+  async openTodo(
+    sessionId: string,
+    position: number,
+    revision: string,
+    signal: AbortSignal,
+    show = false,
+  ): Promise<TodoDocument> {
     const { session, todos } = this.list(sessionId)
     if (todos.listRevision !== revision) throw fail('列表已改变，请重新读取当前可见待办。')
     if (!Number.isSafeInteger(position) || position < 1 || position > todos.visibleTodos.length)
@@ -55,7 +61,7 @@ export class TodoChat {
       {
         lane: 'navigation',
         page: 'my-open-todos',
-        payload: { target: 'todo', page: 'my-open-todos', todoId: target.id, listRevision: revision },
+        payload: { target: 'todo', page: 'my-open-todos', todoId: target.id, listRevision: revision, ...reveal(show) },
         timeoutMs: 15_000,
       },
       id => ({
@@ -103,11 +109,14 @@ export class TodoChat {
         parameters: {
           position: { type: 'integer', required: true, description: '当前可见页序号，从 1 开始' },
           revision: { type: 'string', required: true, description: 'oryh_visible_todos 返回的列表版本' },
+          show: SHOW_PARAMETER,
         },
         output: textOutput,
         execute: async (args, exec) => {
           if (!exec.agent) throw new Error('需要会话')
-          return JSON.stringify(await this.openTodo(String(exec.agent.id), args.position, args.revision, exec.signal))
+          return JSON.stringify(
+            await this.openTodo(String(exec.agent.id), args.position, args.revision, exec.signal, args.show === true),
+          )
         },
       }),
     )

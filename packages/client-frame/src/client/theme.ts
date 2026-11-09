@@ -6,6 +6,7 @@ export function presentTheme(ctx: Context): void {
     const body = document.body
     const root = document.documentElement
     const previousScheme = root.style.colorScheme
+    const previousSource = root.getAttribute('data-ds-theme-source')
     const previousDark = body.getAttribute('data-ds-dark-theme')
     const previous = new Map<string, { value: string; priority: string }>()
     let tokens: string[] = []
@@ -23,6 +24,7 @@ export function presentTheme(ctx: Context): void {
     }
     const apply = (theme: ThemeSnapshot) => {
       root.style.colorScheme = theme.active.colorScheme
+      root.setAttribute('data-ds-theme-source', theme.preference === 'system' ? 'system' : theme.active.colorScheme)
       body.toggleAttribute('data-ds-dark-theme', theme.active.colorScheme === 'dark')
       for (const key of tokens) restore(key)
       tokens = Object.keys(theme.active.tokens)
@@ -30,8 +32,15 @@ export function presentTheme(ctx: Context): void {
         remember(key)
         body.style.setProperty(key, value)
       }
-      remember('--dsh-content-font-size')
-      body.style.setProperty('--dsh-content-font-size', `${theme.fontSize}px`)
+      for (const role of ['text', 'code', 'terminal'] as const) {
+        const size = role === 'text' ? '--dsh-content-font-size' : `--dsh-${role}-font-size`
+        const family = `--dsh-font-family-${role}`
+        remember(size)
+        remember(family)
+        body.style.setProperty(size, `${theme.fontSizes[role]}px`)
+        if (theme.fontFamilies[role]) body.style.setProperty(family, theme.fontFamilies[role])
+        else body.style.removeProperty(family)
+      }
       meta.content = getComputedStyle(body).backgroundColor
     }
     apply(ctx.theme.getTheme())
@@ -40,6 +49,8 @@ export function presentTheme(ctx: Context): void {
       off()
       meta.remove()
       root.style.colorScheme = previousScheme
+      if (previousSource === null) root.removeAttribute('data-ds-theme-source')
+      else root.setAttribute('data-ds-theme-source', previousSource)
       if (previousDark === null) body.removeAttribute('data-ds-dark-theme')
       else body.setAttribute('data-ds-dark-theme', previousDark)
       for (const key of previous.keys()) restore(key)

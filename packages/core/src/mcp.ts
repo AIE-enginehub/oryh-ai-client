@@ -20,6 +20,10 @@ import type { OryhOperation } from './server-operation.js'
  * allowed, no session and no server-initiated stream.
  */
 
+/** A paginated MCP read stops here: a server that never ends its cursor cannot grow the client forever. */
+const MAX_PAGES = 1000
+const MAX_ROWS = 100_000
+
 /** A tool as the server lists it. */
 export interface OryhMcpTool {
   readonly name: string
@@ -99,19 +103,21 @@ export class OryhMcpClient {
    * @param connectionId - the enterprise connection whose credential the call carries.
    * @param name - the tool's name as the server lists it.
    * @param args - the tool's arguments.
-   * @param options - `operation`: on the server, the chat write this call is, for the control process to admit and record.
+   * @param options - `operation`: on the server, the chat write this call is, for the control process to admit and record;
+   *   `signal`: the tool call's own cancellation, which ends the request and keeps one not yet sent from leaving.
    * @returns the answered text; `isError` when the server reports the call failed.
    */
   async callTool(
     connectionId: ConnectionId,
     name: string,
     args: Json,
-    options: { readonly operation?: OryhOperation } = {},
+    options: { readonly operation?: OryhOperation; readonly signal?: AbortSignal } = {},
   ): Promise<OryhMcpToolResult> {
     const [result] = await this.exchange(
       connectionId,
       [{ method: 'tools/call', params: { name, arguments: args } }],
       options.operation,
+      options.signal,
     )
     const reply = isObject(result) ? result : {}
     const text =
@@ -190,17 +196,22 @@ export class OryhMcpClient {
     return texts
   }
 
-  /** Every row of a paginated list, refusing a server that repeats its cursor. */
+  /** Every row of a paginated list, refusing a server that repeats its cursor or never stops paging. */
   private async pages(connectionId: ConnectionId, method: string, key: string): Promise<unknown[]> {
     const rows: unknown[] = []
     const seen = new Set<string>()
     let cursor: string | undefined
+    let pages = 0
     do {
+      if (++pages > MAX_PAGES)
+        throw new OryhClientError(`ORYH MCP 的 ${method} 分页超过 ${MAX_PAGES} 页。`, 'invalid-response')
       const [result] = await this.exchange(connectionId, [
         { method, ...(cursor === undefined ? {} : { params: { cursor } }) },
       ])
       const page = isObject(result) ? result : {}
       if (Array.isArray(page[key])) rows.push(...page[key])
+      if (rows.length > MAX_ROWS)
+        throw new OryhClientError(`ORYH MCP 的 ${method} 超过 ${MAX_ROWS} 行。`, 'invalid-response')
       cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined
       if (cursor !== undefined) {
         if (seen.has(cursor)) throw new OryhClientError(`ORYH MCP 的 ${method} 重复了分页游标。`, 'invalid-response')
@@ -220,6 +231,7 @@ export class OryhMcpClient {
     connectionId: ConnectionId,
     requests: readonly RpcRequest[],
     operation?: OryhOperation,
+    signal?: AbortSignal,
   ): Promise<unknown[]> {
     const results: unknown[] = []
     for (let start = 0; start < requests.length; start += BATCH_SIZE) {
@@ -236,6 +248,7 @@ export class OryhMcpClient {
         method: 'POST',
         body: messages.length === 1 ? messages[0] : messages,
         ...(operation ? { operation } : {}),
+        ...(signal ? { signal } : {}),
       })
       const replies = new Map((Array.isArray(body) ? body : [body]).filter(isObject).map(reply => [reply.id, reply]))
       messages.forEach((message, index) => {

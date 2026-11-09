@@ -1,0 +1,52 @@
+name: oryh-demo-clients
+x-client: &client
+  image: oryh-demo-client-client:latest
+  environment: &environment
+    ORYH_SERVER_ORIGIN: http://host.docker.internal:18081
+    DEEPSEEK_API_KEY: ${ORYH_MODEL_API_KEY:?set ORYH_MODEL_API_KEY}
+    DEEPSEEK_BASE_URL: ${ORYH_MODEL_BASE_URL:-https://api.deepseek.com}
+    ORYH_MODEL: ${ORYH_MODEL:-deepseek-v4-flash}
+    ORYH_MODEL_REASONING_EFFORT: ${ORYH_MODEL_REASONING_EFFORT:-high}
+    ORYH_TIME_ZONE: Asia/Shanghai
+  init: true
+  restart: unless-stopped
+  healthcheck:
+    test: [CMD, node, -e, "fetch('http://127.0.0.1:4173/oryh/health').then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"]
+    interval: 15s
+    timeout: 5s
+    start_period: 90s
+    retries: 4
+services:
+  amelia:
+    <<: *client
+    environment:
+      <<: *environment
+      ORYH_PUBLIC_HOSTS: 127.0.0.1:4180
+    ports: ["127.0.0.1:4180:4173"]
+    volumes: ["amelia-data:/home/node"]
+  priya:
+    <<: *client
+    environment:
+      <<: *environment
+      ORYH_PUBLIC_HOSTS: localhost:4181
+    ports: ["127.0.0.1:4181:4173"]
+    volumes: ["priya-data:/home/node"]
+  grace:
+    <<: *client
+    environment:
+      <<: *environment
+      ORYH_PUBLIC_HOSTS: 127.0.0.1:4182
+    ports: ["127.0.0.1:4182:4173"]
+    volumes: ["grace-data:/home/node"]
+  daniel:
+    <<: *client
+    environment:
+      <<: *environment
+      ORYH_PUBLIC_HOSTS: localhost:4183
+    ports: ["127.0.0.1:4183:4173"]
+    volumes: ["daniel-data:/home/node"]
+volumes:
+  amelia-data:
+  priya-data:
+  grace-data:
+  daniel-data:

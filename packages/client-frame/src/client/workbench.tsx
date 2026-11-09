@@ -1,43 +1,51 @@
 import type { ConnectionSummary } from '@oryh/ai-client-core'
-import { canAccessPage, type PageId } from '@oryh/ai-client-pages'
-import type { PaneContext, UserViewSummary } from '@oryh/dsh-pane/types'
+import {
+  type BridgeOwnerProps,
+  type BusinessView,
+  type ChatActions,
+  type ChatActivity,
+  ChatActivityNote,
+  columnPreferenceScope,
+  type FrameRemote,
+  type FrameShare,
+  noUserViews,
+  type OryhText,
+  type PageContext,
+  type PageFace,
+  PageHeader,
+  type PageInject,
+  type PageOwnerProps,
+  type PaneLocalState,
+  type PaneStreamState,
+  type SelectHook,
+  type UserViews,
+  useCommand,
+  usePageContext,
+} from '@oryh/ai-client-kit'
+import {
+  allowedPages,
+  canAccessPage,
+  listPageForCollection,
+  offersPage,
+  type PageId,
+  type PageIdentity,
+  pageForCollection,
+} from '@oryh/ai-client-pages'
 import { IconChevronRight } from '@tabler/icons-react'
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
-import type { BusinessView } from './layout-store.js'
-import { PageHeader } from './list-kit.js'
-import { useText } from './locale.js'
-import type { ClientPages } from './pages-registry.js'
-import { BusinessNavigationContext, BusinessSessionContext, PaneProvider, useCommand, usePageContext } from './pane.js'
-import { useOryhRemote } from './remote.js'
-import { isUserViewPage, userViewPage, useUserViews } from './user-views.js'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { ChatRecordLinks } from './chat-links.js'
+import { usePaneTarget } from './pane.js'
+import type { PaneService } from './pane-service.js'
+import { isUserViewPage, userViewPage, viewGranted } from './user-views.js'
 
-/** What a page reports about itself to Chat: the Host's pane context, as the pages fill it in. */
-export type PageContext = PaneContext
-
-/** What the workbench hands a page plugin's entry when it renders it into `oryh.page`. */
-export interface PageOwnerProps {
-  connection: ConnectionSummary
-  /** Whether this page is the one on screen; a hidden page keeps its state and reads again when shown. */
-  active: boolean
-  /** The person's menu entry this page is opened as, when it is one. */
-  view?: UserViewSummary
-  /** Whether the page holds unsaved work; the frame keeps the connection from changing under it. */
-  onDirtyChange: (dirty: boolean) => void
-  /** What the page shows, for the Host; only the page on screen is reported. */
-  onContext: (value: PageContext) => void
-}
-/** What the workbench hands the bridges: the always-mounted pieces a page plugin adds to the pane. */
-export interface BridgeOwnerProps {
-  connection: ConnectionSummary
-  navigate: (page: BusinessView) => void
-}
+export type { BridgeOwnerProps, PageContext, PageOwnerProps }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** One business page per key; the page plugins register theirs, the workbench renders the current one. */
-    'oryh.page': { kind: 'keyed'; scope: 'root'; owner: PageOwnerProps }
+    'oryh.page': { kind: 'keyed'; scope: 'root'; owner: PageOwnerProps; inject: PageInject }
     /** Always-mounted pane bridges: a page plugin's handling of the agent's commands for its pages. */
-    'oryh.bridge': { kind: 'list'; scope: 'root'; owner: BridgeOwnerProps }
+    'oryh.bridge': { kind: 'list'; scope: 'root'; owner: BridgeOwnerProps; inject: PageInject }
   }
 }
 
@@ -46,24 +54,70 @@ export interface PageSlots {
   page: (route: string, entryKey: string, owner: PageOwnerProps) => ReactNode
   bridges: (owner: BridgeOwnerProps) => ReactNode
 }
-export const PageSlotsContext = createContext<PageSlots | undefined>(undefined)
-export const PagesContext = createContext<ClientPages | undefined>(undefined)
-/** The pages the page plugins registered. */
-export function usePages(): ClientPages {
-  const pages = useContext(PagesContext)
-  if (!pages) throw new Error('ORYH pages are not mounted')
-  return pages
+
+/**
+ * What the frame's entry is drawn with, handed down as one prop: there is no React context between the
+ * entry and the workbench. The hooks are the renderer's, made over this plugin's own sources.
+ */
+export interface FrameEnv {
+  readonly remote: FrameRemote
+  readonly t: OryhText
+  readonly slots: PageSlots
+  /** What a page is called in the menu, where a page plugin registered one. */
+  readonly pageLabel: (page: string) => string | undefined
+  /** The Chat session the pane binds to; undefined when no session is open. */
+  readonly sessionId: string | undefined
+  /** The Host's session list has arrived holding no session at all, so none is about to be restored. */
+  readonly noSessions: boolean
+  readonly navigate: (page: BusinessView, reveal?: boolean) => void
+  readonly chat: ChatActions
+  readonly activity: ChatActivity
+  /** A conversation other than the one on show whose agent waits on the person. */
+  readonly elsewhere: string | undefined
+  readonly pane: PaneService
+  readonly usePane: SelectHook<PaneStreamState>
+  readonly usePaneLocal: SelectHook<PaneLocalState>
+  /** The mirrored menu of one enterprise identity; undefined for a scope nobody has asked about. */
+  readonly useMenu: (scope: string) => UserViews | undefined
+  /** The frame's kept preferences, and the renderer's keyed hook over them. */
+  readonly prefs: PageInject['prefs']
+  readonly usePreference: (name: string) => unknown
+}
+
+/**
+ * Where a person is taken from a page restored for them that cannot be shown: the first page their menu
+ * offers. Settings, which every account may open, only if it offers none.
+ * @param identity - the verified identity.
+ */
+function homePage(identity: PageIdentity): Exclude<PageId, 'collection'> {
+  return allowedPages(identity).find(page => page !== 'settings' && page !== 'collection') ?? 'settings'
 }
 
 export function Workbench(props: Parameters<typeof WorkbenchContent>[0]): ReactNode {
-  const { views } = useUserViews(props.connection)
-  // A menu entry is only ever as open as the list it narrows: it grants nothing of its own.
-  const target = isUserViewPage(props.page) ? views.find(v => userViewPage(v.id) === props.page)?.kind : props.page
-  if (target !== undefined && !canAccessPage(props.connection.identity, target))
+  const { navigate } = props.env
+  const { views } = props.env.useMenu(columnPreferenceScope(props.connection)) ?? noUserViews
+  const { identity } = props.connection
+  // A menu entry grants nothing of its own: what it lists is read from ORYH as this person.
+  const entry = isUserViewPage(props.page) ? views.find(v => userViewPage(v.id) === props.page) : undefined
+  const target = entry ? pageForCollection(entry.collection) : isUserViewPage(props.page) ? undefined : props.page
+  const denied =
+    (entry !== undefined && !viewGranted(identity, entry)) ||
+    (target !== undefined && !canAccessPage(identity, target)) ||
+    // A page this client no longer has, restored from before it went.
+    (entry === undefined && target !== undefined && !offersPage(target))
+  const home = homePage(identity)
+  // The page restored on load can be one this account may not open: a permission revoked since. Nobody
+  // chose to be there, so the person is taken home, as with a menu entry that no longer exists. The app
+  // renders this only once permissions are verified.
+  useEffect(() => {
+    // Nobody asked to see it either: on a narrow screen the person stays where they are.
+    if (denied && home !== props.page) navigate(home, false)
+  }, [denied, home, props.page, navigate])
+  if (denied)
     return (
       <main className="business-content">
-        <h1>此功能不可用</h1>
-        <p>当前账号没有访问此功能的权限，或正在核验权限。请从左侧选择可用菜单。</p>
+        <h1>{props.env.t('pageUnavailable')}</h1>
+        <p>{props.env.t('pageUnavailableHint')}</p>
       </main>
     )
   return <WorkbenchContent {...props} />
@@ -75,26 +129,42 @@ export function Workbench(props: Parameters<typeof WorkbenchContent>[0]): ReactN
  * the page plugin's bridge's to handle.
  */
 function WorkbenchBridge({
+  face,
   context,
   onNavigate,
 }: {
+  face: PageFace
   context: PageContext | undefined
-  onNavigate: (page: BusinessView) => void
+  onNavigate: (page: BusinessView, reveal?: boolean) => void
 }): ReactNode {
-  usePageContext(context)
+  usePageContext(face, context)
   useCommand(
+    face,
     'navigation',
     undefined,
     command => {
       switch (command.target) {
         case 'view':
           if (!command.userViewId) return false
-          onNavigate(userViewPage(command.userViewId))
+          onNavigate(userViewPage(command.userViewId), command.reveal === true)
           return true
         case 'page':
-          if (!command.page) return false
-          onNavigate(command.page)
+          // `collection` is where a menu entry is rendered, not a page a person is ever on: a person
+          // is on the entry itself, and the entry names what shows it.
+          if (!command.page || command.page === 'collection') return false
+          onNavigate(command.page, command.reveal === true)
           return true
+        case 'filters':
+          // A list narrowed as the agent read it: the list's page applies the conditions and answers for
+          // them; the workbench only gets there. On the page already showing there is nowhere to go.
+          if (command.page && command.page !== 'collection') onNavigate(command.page, command.reveal === true)
+          return false
+        case 'record':
+          // The page that shows the record opens it and answers for it; the workbench only gets there:
+          // to a built-in page, or to the menu entry that lists the record's collection.
+          if (command.page && command.page !== 'collection') onNavigate(command.page, command.reveal === true)
+          else if (command.userViewId) onNavigate(userViewPage(command.userViewId), command.reveal === true)
+          return false
         default:
           return false
       }
@@ -105,33 +175,63 @@ function WorkbenchBridge({
 }
 
 function WorkbenchContent({
+  env,
   page,
   connection,
   onDirtyChange,
   settings,
   notices,
 }: {
+  env: FrameEnv
   page: BusinessView
   connection: ConnectionSummary
   onDirtyChange: (dirty: boolean) => void
   settings: ReactNode
   notices: ReactNode
 }): ReactNode {
-  const t = useText()
-  const navigate = useContext(BusinessNavigationContext)
-  const sessionId = useContext(BusinessSessionContext)
-  const remote = useOryhRemote()
-  const slots = useContext(PageSlotsContext)
-  const pages = usePages()
-  const { views: userViews, loaded: userViewsLoaded, scope: userViewScope } = useUserViews(connection)
+  const { t, navigate, sessionId, noSessions, chat, activity, remote, slots } = env
+  const userViewScope = columnPreferenceScope(connection)
+  const { views: userViews, loaded: userViewsLoaded, sharing = false } = env.useMenu(userViewScope) ?? noUserViews
   const userView = isUserViewPage(page) ? userViews.find(v => userViewPage(v.id) === page) : undefined
+  const home = homePage(connection.identity)
+  // What every page and bridge is told of the workbench as it is drawn; the rest reaches them through
+  // the slot's own inject (index.tsx). The frame's own pieces below take the two together, as a page does.
+  const frame = useMemo<FrameShare>(
+    () => ({
+      sessionId,
+      navigate,
+      chat,
+      activity,
+      menu: { views: userViews, loaded: userViewsLoaded, sharing },
+      t,
+      usePreference: env.usePreference,
+    }),
+    [sessionId, navigate, chat, activity, userViews, userViewsLoaded, sharing, t, env.usePreference],
+  )
+  const face = useMemo<PageFace>(
+    () => ({
+      connection,
+      frame,
+      remote,
+      prefs: env.prefs,
+      local: env.pane.local,
+      usePane: env.usePane,
+      usePaneLocal: env.usePaneLocal,
+    }),
+    [connection, frame, remote, env.prefs, env.pane, env.usePane, env.usePaneLocal],
+  )
   // The Host checks permissions against a real page, so a menu entry reports the list it narrows.
-  const hostPage: PageId = userView ? userView.kind : isUserViewPage(page) ? 'my-open-todos' : (page as PageId)
-  // An entry deleted elsewhere, or one from another workspace restored on reload, falls back to the
-  // home page — but only once the Host's list has arrived: before that, "missing" just means "not yet".
+  const hostPage: PageId = userView
+    ? listPageForCollection(userView.collection)
+    : isUserViewPage(page)
+      ? home
+      : (page as PageId)
+  // An entry deleted elsewhere, one from another workspace, or one gone with the workspace that held it
+  // falls back to the first page of this person's menu, as a page they may not open does — but only once
+  // the menu has arrived: before that, "missing" just means "not yet".
   useEffect(() => {
-    if (userViewsLoaded && isUserViewPage(page) && !userView) navigate('my-open-todos')
-  }, [page, userView, userViewsLoaded, navigate])
+    if (userViewsLoaded && isUserViewPage(page) && !userView) navigate(home, false)
+  }, [page, userView, userViewsLoaded, home, navigate])
   // ORYH hands an agent its skills on approval and expects it to re-sync, because a tenant admin
   // can redefine business logic at any time. The Host compares the server manifest first, so this
   // is a cheap no-op once installed. Failure is deliberately silent: the workbench still works
@@ -152,6 +252,7 @@ function WorkbenchContent({
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key is the map, serialised.
     [dirtyKey, onDirtyChange],
   )
+  usePaneTarget(env.pane, { sessionId, noSessions, connectionId: connection.id, page: hostPage, scope: userViewScope })
   const main = useRef<HTMLElement>(null)
   useEffect(() => {
     const seat = main.current?.closest<HTMLElement>('.oryh-business-seat')
@@ -164,26 +265,24 @@ function WorkbenchContent({
     )
   }
   const company = connection.identity.tenant.name ?? connection.identity.tenant.slug
-  const label = isUserViewPage(page)
-    ? (userView?.label ?? '')
-    : page === 'settings'
-      ? t('text15')
-      : pages.get(page)?.label()
+  const label = isUserViewPage(page) ? (userView?.label ?? '') : page === 'settings' ? t('text15') : env.pageLabel(page)
   /** The route a visited page renders under: the page itself, or the list a menu entry narrows. */
   const routeOf = (route: string) => {
     const view = isUserViewPage(route) ? userViews.find(v => userViewPage(v.id) === route) : undefined
-    return { view, entryKey: view ? view.kind : route }
+    return { view, entryKey: view ? listPageForCollection(view.collection) : route }
   }
   return (
-    <PaneProvider sessionId={sessionId} connectionId={connection.id} page={hostPage} scope={userViewScope}>
+    <>
       <div className="oryh-business">
-        <WorkbenchBridge context={pageContexts[page]} onNavigate={navigate} />
-        {slots?.bridges({ connection, navigate })}
+        <WorkbenchBridge face={face} context={pageContexts[page]} onNavigate={navigate} />
+        <ChatRecordLinks face={face} />
+        {slots?.bridges({ connection, navigate, frame })}
         <main ref={main} className="business-content">
           {notices}
           <div className="breadcrumb">
             {t('text16')}
             <IconChevronRight size={13} /> {label ?? page}
+            <ChatActivityNote t={t} activity={activity} chat={chat} elsewhere={env.elsewhere} />
           </div>
           {page === 'settings' && <PageHeader title={t('text15')} note={t('text18')} />}
           {visited.map(route => {
@@ -196,7 +295,7 @@ function WorkbenchContent({
               <section
                 key={route}
                 hidden={!active}
-                aria-label={t('text19', { value0: pages.get(entryKey)?.label() ?? entryKey })}
+                aria-label={t('text19', { value0: env.pageLabel(entryKey) ?? entryKey })}
               >
                 {slots?.page(route, entryKey, {
                   connection,
@@ -205,6 +304,7 @@ function WorkbenchContent({
                   onDirtyChange: dirty =>
                     setDirtyPages(current => (current[route] === dirty ? current : { ...current, [route]: dirty })),
                   onContext: value => report(route, value),
+                  frame,
                 })}
               </section>
             )
@@ -226,6 +326,6 @@ function WorkbenchContent({
           )}
         </main>
       </div>
-    </PaneProvider>
+    </>
   )
 }

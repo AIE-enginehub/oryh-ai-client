@@ -1,6 +1,7 @@
 /** Todos as a Harness Host plugin: the linked-document read, and the pane tools over the todo list. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tools'
+import { TodoDetailService } from '@oryh/ai-client-todos'
 import type {} from '@oryh/dsh-connection'
 import type {} from '@oryh/dsh-pane'
 import { TodosRemote } from './remote.js'
@@ -14,17 +15,25 @@ export const inject = ['typert', 'tools', 'oryhHost', 'oryhPane']
 
 /** The rule the agent follows for the todo list; page names and tool names are its own. */
 export const TODO_RULES: readonly string[] = [
+  '待办列表已经在页面显示时，回答中的序号和顺序必须与 oryh_visible_todos 返回的当前可见顺序一致，不自行按逾期或优先级重排。如果用户要求另一种排序但页面不能同步排序，明确说明对话排序与页面不同，使用标题而非序号指代。',
   '待办：用户在待办列表说查看第一条、第二条或指定标题的待办时，先调用 oryh_visible_todos 按当前可见顺序定位，再调用 oryh_open_todo 传 position 和 revision 在中间栏打开并读取详情；列表版本变化就重新读取，标题有歧义先询问。回答当前待办或关联单据的具体信息时调用 oryh_current_todo_details 获取服务端最新数据，引用实际单据类型、编号和查询时间。',
 ]
 export const TODO_TOOLS: readonly string[] = ['oryh_current_todo_details', 'oryh_visible_todos', 'oryh_open_todo']
 
 export function apply(ctx: Context): void {
-  const details = ctx.oryhHost.createTodoDetailRemote()
+  const details = TodoDetailService.over(ctx.oryhHost.createDomainReads())
   ctx.provide('oryhTodoDetails', details)
   new TodoChat(ctx, ctx.oryhPane, details).install()
   ctx.effect(
     () =>
-      ctx.oryhPane.contribute({ name, resources: { todos: 'my-open-todos' }, prompt: TODO_RULES, tools: TODO_TOOLS }),
+      ctx.oryhPane.contribute({
+        name,
+        resources: { todos: 'my-open-todos' },
+        prompt: TODO_RULES,
+        tools: TODO_TOOLS,
+        opensRecords: true,
+        narrows: true,
+      }),
     'oryh todos contribution',
   )
   ctx.plugin(TodosRemote)

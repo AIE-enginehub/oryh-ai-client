@@ -44,6 +44,12 @@ describe('ORYH MCP client', () => {
     await expect(client.tools(connectionId)).rejects.toThrow(/分页游标/)
   })
 
+  it('stops a server that keeps returning new cursors', async () => {
+    let page = 0
+    const { client } = endpoint(() => ({ result: { tools: [], nextCursor: `cursor-${++page}` } }))
+    await expect(client.tools(connectionId)).rejects.toThrow(/分页超过 1000 页/)
+  })
+
   it("returns a tool's text and says when the server called it an error", async () => {
     const { client } = endpoint(message =>
       (message.params as { arguments: { path: string } }).arguments.path === '/missing'
@@ -67,6 +73,13 @@ describe('ORYH MCP client', () => {
     await client.callTool(connectionId, 'oryh_request', { method: 'GET', path: '/projects' })
     expect(requests[0]).toMatchObject({ operation })
     expect(requests[1]).not.toHaveProperty('operation')
+  })
+
+  it("carries a call's own cancellation to the request that sends it", async () => {
+    const { client, requests } = endpoint(() => ({ result: { content: [{ type: 'text', text: '{}' }] } }))
+    const stop = new AbortController()
+    await client.callTool(connectionId, 'oryh_request', { method: 'POST', path: '/projects' }, { signal: stop.signal })
+    expect((requests[0] as { signal?: AbortSignal }).signal).toBe(stop.signal)
   })
 
   it('batches prompt reads, and fails loudly on a JSON-RPC error rather than returning part of the set', async () => {

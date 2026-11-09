@@ -48,6 +48,9 @@ describe('saved deterministic operations', () => {
         },
         meta: {},
       }),
+      // Each run of the to-do list is two reads: the open ones, then the most recent of the rest.
+      jsonResponse(200, { data: [], meta: { total: 0 } }),
+      jsonResponse(200, { data: [], meta: { total: 0 } }),
       jsonResponse(200, { data: [], meta: { total: 0 } }),
       jsonResponse(200, { data: [], meta: { total: 0 } }),
     ])
@@ -58,21 +61,21 @@ describe('saved deterministic operations', () => {
     const connected = await controller.pollConnection(started.authorizationId)
     if (connected.state !== 'connected') throw new Error('Expected a connected device flow')
 
-    const result = await controller.execute(connected.connection.id, 'list-projects')
+    const result = await controller.execute(connected.connection.id, 'my-open-todos')
     const saved = await controller.saveResult(
       connected.connection.id,
-      'list-projects',
+      'my-open-todos',
       result.id,
-      '活跃项目',
+      '我的待办',
       '2026-08-28T00:00:00Z',
     )
 
     const restored = new OryhClientController(host, { savedOperationStore })
     await expect(restored.listSavedOperations(connected.connection.id)).resolves.toEqual([saved])
     await expect(restored.refreshSavedOperation(connected.connection.id, saved.id)).resolves.toMatchObject({
-      operationId: 'list-projects',
+      operationId: 'my-open-todos',
     })
-    expect(fetcher.calls).toHaveLength(5)
+    expect(fetcher.calls).toHaveLength(7)
   })
 
   it('validates labels and refuses saved views from another connection', () => {
@@ -81,7 +84,7 @@ describe('saved deterministic operations', () => {
       registry.save(
         {
           connectionId: connectionId('connection-1'),
-          operationId: 'list-projects',
+          operationId: 'my-open-todos',
           resultId: operationResultId('result-1'),
           label: ' ',
         },
@@ -91,9 +94,9 @@ describe('saved deterministic operations', () => {
     const saved = registry.save(
       {
         connectionId: connectionId('connection-1'),
-        operationId: 'list-projects',
+        operationId: 'my-open-todos',
         resultId: operationResultId('result-1'),
-        label: '项目',
+        label: '待办',
       },
       '2026-08-28T00:00:00Z',
     )

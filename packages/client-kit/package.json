@@ -1,0 +1,48 @@
+{
+  "name": "@oryh/ai-client-kit",
+  "version": "0.1.0",
+  "description": "What ORYH's pages are drawn with, how they word things, and how they take part in the workbench: controls on DeepSeek Harness's primitives, the shared pieces of a list page, the word list they speak from, and hooks that take what the frame plugin's slot handed the page as their first argument. A static library, bundled into each client plugin that uses it — it reads no React context and holds no state; whatever must be one instance for everyone is the frame plugin's.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./dictionary": {
+      "types": "./lib/dictionary.d.ts",
+      "default": "./lib/dictionary.js"
+    },
+    "./testing": {
+      "types": "./lib/pane-test.d.ts",
+      "default": "./lib/pane-test.js"
+    },
+    "./styles.css": "./src/styles.css"
+  },
+  "files": [
+    "lib/",
+    "src/styles.css"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run src",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-client-store": "link:../../../deepseek-harness/packages/client/store",
+    "@deepseek-ai/dsh-client-ui-primitives": "link:../../../deepseek-harness/packages/client/ui-primitives",
+    "@oryh/ai-client-core": "workspace:*",
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/ai-client-records": "workspace:*",
+    "@oryh/dsh-pane": "workspace:*",
+    "@tabler/icons-react": "^3.46.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "^18.3.1"
+  }
+}

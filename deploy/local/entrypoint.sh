@@ -31,6 +31,14 @@ node deploy/local/model-config.mjs
 # in with ORYH (OAuth authorization code + PKCE), obtains DSH's own session cookie for them, and
 # hands the same sign-in to the client as its enterprise connection. DSH still checks Host, Origin
 # and its cookie on every request.
+# The workspace made above is registered with Harness at start, so Chat takes a first message as it is.
+export ORYH_LOCAL_WORKSPACE="$HOME/workspace"
 export ORYH_CREDENTIAL_HANDOFF="$HOME/.config/oryh-container/connection-handoff.json"
 export ORYH_CONTAINER_OWNER="$HOME/.config/oryh-container/owner.json"
-exec node deploy/local/login-gateway.mjs -- pnpm exec dsh --profile oryh-web --host 127.0.0.1 --port 4174 --no-open --trusted-host 127.0.0.1:4180 localhost:4180
+# The person signed in to this single-user container may hand it to another account of theirs: the
+# gateway serves /oryh/switch, and the workbench offers it in its header and on the connection page.
+export ORYH_ACCOUNT_SWITCH=1
+# DSH trusts the same addresses the gateway answers on (ORYH_PUBLIC_HOSTS, comma-separated).
+trusted_hosts=$(printf '%s' "${ORYH_PUBLIC_HOSTS:-127.0.0.1:4180,localhost:4180}" | tr ',' ' ')
+# shellcheck disable=SC2086 # split on purpose: one argument per host
+exec node deploy/local/login-gateway.mjs -- pnpm exec dsh --profile oryh-web --host 127.0.0.1 --port 4174 --no-open --trusted-host $trusted_hosts

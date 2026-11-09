@@ -8,10 +8,8 @@ export const REMOTE_PACKAGES = [
   '@oryh/dsh-connection',
   '@oryh/dsh-pane',
   '@oryh/dsh-todos',
-  '@oryh/dsh-timesheets',
-  '@oryh/dsh-expenses',
-  '@oryh/dsh-projects',
   '@oryh/dsh-records',
+  '@oryh/dsh-analytics',
 ]
 const artifacts = [...new WorkspaceTypertGenerator(root).generate(REMOTE_PACKAGES, ['host'])]
 
@@ -25,8 +23,9 @@ const artifacts = [...new WorkspaceTypertGenerator(root).generate(REMOTE_PACKAGE
  * positive property here does not depend on either condition holding.
  *
  * Every package must have a unary Remote; the pane must also have the streaming one, which travels a
- * different path through the analyzer (AsyncIterable<T> with a trailing AbortSignal). Validation runs
- * before any write, so a failure leaves the previous artifacts intact.
+ * different path through the analyzer (a host AsyncIterable<T> with a trailing AbortSignal, which the
+ * Client receives as a RemoteStreamHandle<T, In> since DSH 0.1.7). Validation runs before any write,
+ * so a failure leaves the previous artifacts intact.
  */
 const missing = []
 for (const name of REMOTE_PACKAGES) {
@@ -38,8 +37,8 @@ for (const name of REMOTE_PACKAGES) {
   }
   if (!/=>\s*Promise<RemoteResult</.test(remote.dts))
     missing.push(`${name}: no unary Remote (=> Promise<RemoteResult<…>>)`)
-  if (name === '@oryh/dsh-pane' && !/=>\s*AsyncIterable</.test(remote.dts))
-    missing.push(`${name}: no streaming Remote (=> AsyncIterable<…>)`)
+  if (name === '@oryh/dsh-pane' && !/=>\s*RemoteStreamHandle</.test(remote.dts))
+    missing.push(`${name}: no streaming Remote (=> RemoteStreamHandle<…>)`)
 }
 if (missing.length > 0) {
   console.error('ORYH Remote generation produced incomplete descriptors:')

@@ -13,8 +13,10 @@ export interface PageRegistration {
   readonly page: PageId
   /** Menu position; lower first. Pages of one plugin keep their own order among themselves. */
   readonly order: number
+  /** Optional visual grouping; ungrouped external plugins remain in business management. */
+  readonly group?: 'work' | 'business' | 'insights'
   /** The menu icon, sized by the menu; any icon component, such as one from Tabler. */
-  readonly icon: (props: { size?: number | string }) => ReactNode
+  readonly icon: (props: { size?: number | string; stroke?: number | string }) => ReactNode
   /** What the page is called, read at render so it follows the locale. */
   readonly label: () => string
 }
@@ -39,7 +41,7 @@ export class ClientPages {
     }
   }
 
-  // Bound, so `useSyncExternalStore(pages.subscribe, pages.getSnapshot)` can take them unbound.
+  // Bound: the renderer takes them unbound when it makes the menu's hook over this source.
   readonly getSnapshot = (): PagesSnapshot => this.#snapshot
 
   readonly subscribe = (listener: () => void): (() => void) => {

@@ -1,7 +1,7 @@
 {
   "name": "@oryh/dsh-client-frame",
   "version": "0.1.0",
-  "description": "The ORYH workbench frame: root layout, menu, connection screen, pane bridge and the page kit the page plugins build on.",
+  "description": "The ORYH workbench frame: root layout, menu, connection screen, and the pane bridge the page plugins reach through its slots.",
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.app.json && node ../../scripts/build-dsh-client.mjs",
@@ -14,15 +14,17 @@
     "@deepseek-ai/dsh-client-locale": "link:../../../deepseek-harness/packages/client/locale",
     "@deepseek-ai/dsh-client-store": "link:../../../deepseek-harness/packages/client/store",
     "@deepseek-ai/dsh-client-ui-layout": "link:../../../deepseek-harness/packages/client/ui-layout",
+    "@deepseek-ai/dsh-client-ui-primitives": "link:../../../deepseek-harness/packages/client/ui-primitives",
     "@deepseek-ai/dsh-client-ui-renderer": "link:../../../deepseek-harness/packages/client/ui-renderer",
     "@deepseek-ai/dsh-client-ui-session": "link:../../../deepseek-harness/packages/client/ui-session",
     "@deepseek-ai/dsh-client-ui-settings": "link:../../../deepseek-harness/packages/client/ui-settings",
     "@deepseek-ai/dsh-client-ui-sidebar": "link:../../../deepseek-harness/packages/client/ui-sidebar",
     "@deepseek-ai/dsh-client-ui-slots": "link:../../../deepseek-harness/packages/client/ui-slots",
     "@deepseek-ai/dsh-client-ui-theme": "link:../../../deepseek-harness/packages/client/ui-theme",
-    "@fluentui/react-components": "^9.74.7",
+    "@deepseek-ai/dsh-client-ui-workspace": "link:../../../deepseek-harness/packages/client/ui-workspace",
     "@oryh/ai-client-core": "workspace:*",
     "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-kit": "workspace:*",
     "@oryh/ai-client-pages": "workspace:*",
     "@oryh/ai-client-records": "workspace:*",
     "@oryh/ai-client-workspace": "workspace:*",
@@ -31,7 +33,11 @@
     "@tabler/icons-react": "^3.46.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-client-ui-conversation": "link:../../../deepseek-harness/packages/client/ui-conversation",
+    "@deepseek-ai/dsh-host-webserver": "link:../../../deepseek-harness/packages/host/webserver",
+    "@deepseek-ai/schemastery": "link:../../../deepseek-harness/vendor/schemastery",
+    "@deepseek-ai/dsh-client-ui-chat": "link:../../../deepseek-harness/packages/client/ui-chat"
   },
   "devDependencies": {
     "@types/react": "~18.3.1",

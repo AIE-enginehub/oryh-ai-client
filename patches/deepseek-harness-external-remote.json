@@ -1,7 +1,8 @@
 {
   "description": "Baseline the external-plugin Remote patch was exported against. A DSH upgrade moves the hunk (it already went from analyzer.ts:1850 to :1936 across 0.1.5-rc.1 -> rc.2), so the patch and this pin must be refreshed together.",
-  "harnessVersion": "0.1.5-rc.2",
-  "harnessCommit": "c291e7961a",
+  "harnessRepository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "harnessVersion": "0.2.1-rc.4",
+  "harnessCommit": "504a01a957",
   "patch": "deepseek-harness-external-remote.patch",
   "target": [
     "packages/typert/generator/src/analyzer.ts",

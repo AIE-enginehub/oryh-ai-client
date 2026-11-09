@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RecordConnection, RecordHttp } from '../src/service.js'
-import { decodeRecordPage, RecordService } from '../src/service.js'
+import { builtInDisplay, decodeRecordPage, RecordService } from '../src/service.js'
 
 const connection = {
   origin: 'https://example.invalid',
@@ -32,9 +32,9 @@ const body = {
 }
 describe('business record queries', () => {
   it('preserves zero and signed quantities and only exposes named fields', () => {
-    const result = decodeRecordPage('inventory-items', body, 1)
-    expect(result.rows[0]?.fields).toContainEqual({ label: '现存数量', value: '0' })
-    expect(result.rows[0]?.fields).toContainEqual({ label: '可承诺数量', value: '-2' })
+    const result = decodeRecordPage(builtInDisplay('inventory-items'), body, 1)
+    expect(result.rows[0]?.fields).toContainEqual({ field: 'quantity_on_hand', label: '现存数量', value: '0' })
+    expect(result.rows[0]?.fields).toContainEqual({ field: 'available_to_promise', label: '可承诺数量', value: '-2' })
     expect(JSON.stringify(result)).not.toContain('never')
     expect(result.total).toBe(30)
   })
@@ -82,7 +82,17 @@ it('resolves ledger products once per position without exposing relation secrets
           ],
           meta: { pages: 1, total: 2 },
         }
-      : { data: { id: 'i', product_code: 'P-1', facility: 'Warehouse', metadata: { secret: 'never' } } },
+      : req.path.startsWith('/products/')
+        ? { data: { id: 'p-1', name: '中端医用胶片打印机', metadata: { secret: 'never' } } }
+        : {
+            data: {
+              id: 'i',
+              product_id: 'p-1',
+              product_code: 'P-1',
+              facility: 'Warehouse',
+              metadata: { secret: 'never' },
+            },
+          },
   )
   const service = new RecordService(
     { request } as unknown as RecordHttp,
@@ -90,10 +100,17 @@ it('resolves ledger products once per position without exposing relation secrets
     () => connection,
   )
   const result = await service.recordList({ connectionId: 'c', kind: 'inventory-item-details', page: 1, query: '' })
-  expect(request).toHaveBeenCalledTimes(2)
+  expect(request).toHaveBeenCalledTimes(3)
   expect(request.mock.calls[1]).toEqual(['c', { path: '/inventory-items/i' }])
-  for (const row of result.rows) expect(row.fields).toContainEqual({ label: '产品编码', value: 'P-1' })
+  expect(request.mock.calls[2]).toEqual(['c', { path: '/products/p-1' }])
+  for (const row of result.rows) {
+    expect(row.fields).toContainEqual({ field: 'product_code', label: '产品编码', value: 'P-1' })
+    expect(row.fields).toContainEqual({ field: 'product_name', label: '产品名称', value: '中端医用胶片打印机' })
+  }
   expect(JSON.stringify(result)).not.toContain('never')
+  // The next page reads the position again but not the product: its name is kept for a while.
+  await service.recordList({ connectionId: 'c', kind: 'inventory-item-details', page: 1, query: '' })
+  expect(request.mock.calls.filter(([, req]) => req.path.startsWith('/products/'))).toHaveLength(1)
 })
 it('searches product names and codes with server paging and a narrow result schema', async () => {
   const request = vi.fn(async () => ({

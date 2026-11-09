@@ -3,7 +3,6 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { type Domain, defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { OryhClientError } from '@oryh/ai-client-foundation'
-import { recordSpecs } from '@oryh/ai-client-records'
 import { z } from 'zod'
 import type { UserViewSummary } from './types.js'
 
@@ -23,15 +22,74 @@ import type { UserViewSummary } from './types.js'
 /** How many entries one person may keep in one workspace, so a runaway agent cannot bury the menu. */
 export const USER_VIEW_LIMIT = 30
 
-const view = z.object({
-  id: z.string().regex(/^[0-9a-f-]{36}$/),
-  label: z.string().trim().min(1).max(24),
-  kind: z
-    .string()
-    .refine(kind => Object.hasOwn(recordSpecs, kind))
-    .transform(kind => kind as UserViewSummary['kind']),
-  filters: z.record(z.string().regex(/^[a-z_][a-z0-9_]{0,63}$/), z.string().min(1).max(200)),
-})
+/** How many columns one entry may name, so a runaway agent cannot store a table nobody can read. */
+const COLUMN_LIMIT = 60
+
+/** A collection as ORYH's own catalogue spells it, which is also the last segment of its list path. */
+const COLLECTION = /^[a-z][a-z0-9-]{0,63}$/
+/** A field of a row, as the deployment's schema spells it. */
+const FIELD = /^[a-z_][a-z0-9_]{0,63}$/
+
+const column = z.object({ field: z.string().regex(FIELD), label: z.string().trim().min(1).max(24) })
+
+const view = z
+  .object({
+    id: z.string().regex(/^[0-9a-f-]{36}$/),
+    label: z.string().trim().min(1).max(24),
+    // Entries written before a menu could name any collection carry `kind`, which held the same word:
+    // the four built-in lists are addressed by their collection name too. Read as one, stored as the other.
+    kind: z.string().optional(),
+    collection: z.string().regex(COLLECTION).optional(),
+    filters: z.record(z.string().regex(FIELD), z.string().min(1).max(200)),
+    display: z
+      .object({
+        title: z.string().regex(FIELD).optional(),
+        summary: z.string().regex(FIELD).optional(),
+        date: z.string().regex(FIELD).optional(),
+        columns: z.array(column).max(COLUMN_LIMIT),
+      })
+      .optional(),
+  })
+  .transform(({ kind, collection, display, ...rest }, ctx): UserViewSummary => {
+    const named = collection ?? kind
+    if (named === undefined || !COLLECTION.test(named)) {
+      ctx.addIssue({ code: 'custom', message: 'a menu entry must name the collection it shows' })
+      return z.NEVER
+    }
+    return { ...rest, collection: named, ...(display === undefined ? {} : { display: shown(display) }) }
+  })
+
+/** How a menu entry is made, apart from what its owner calls it: what sharing one hands to colleagues. */
+export type UserViewMake = Pick<UserViewSummary, 'collection' | 'filters' | 'display'>
+
+/**
+ * Read how a shared menu entry is made. It was written by a colleague's Host and kept by the
+ * deployment, so it is checked as anything this Host did not write.
+ * @param body - the shared definition.
+ * @returns how to make it, or undefined when this version cannot read it.
+ */
+export function readSharedView(body: unknown): UserViewMake | undefined {
+  if (typeof body !== 'object' || body === null) return undefined
+  const read = view.safeParse({ ...body, id: '00000000-0000-0000-0000-000000000000', label: 'x' })
+  if (!read.success) return undefined
+  const { collection, filters, display } = read.data
+  return { collection, filters, ...(display === undefined ? {} : { display }) }
+}
+
+/** Drop the keys nobody set, so an absent field stays absent rather than becoming an undefined one. */
+function shown(display: {
+  title?: string | undefined
+  summary?: string | undefined
+  date?: string | undefined
+  columns: { field: string; label: string }[]
+}): NonNullable<UserViewSummary['display']> {
+  return {
+    columns: display.columns,
+    ...(display.title === undefined ? {} : { title: display.title }),
+    ...(display.summary === undefined ? {} : { summary: display.summary }),
+    ...(display.date === undefined ? {} : { date: display.date }),
+  }
+}
 const entry = z.object({ views: z.array(view).max(USER_VIEW_LIMIT), updatedAt: z.string() })
 type Entry = z.infer<typeof entry>
 
@@ -95,11 +153,18 @@ export class UserViewRegistry {
   async workspace(sessionId: string): Promise<string> {
     const cached = this.workspaces.get(sessionId)
     if (cached) return cached
+    const registry = this.ctx.get('workspaceRegistry')
+    if (!registry) throw fail('当前运行环境没有 Harness workspace，无法保存菜单项。')
+    // A restored browser can bind before its Agent is resumed. The public workspace registry
+    // still owns that session's membership, so menu/page reads must not depend on a live Agent.
+    const membership = registry.list().find(workspace => workspace.sessionIds.includes(SessionId(sessionId)))
+    if (membership) {
+      this.workspaces.set(sessionId, membership.id)
+      return membership.id
+    }
     const agent: SessionAgent | undefined = this.ctx.agents.get(SessionId(sessionId))
     const cwd = agent?.session.header.cwd
     if (!cwd) throw fail('当前会话不可用，无法确定所在的 workspace。')
-    const registry = this.ctx.get('workspaceRegistry')
-    if (!registry) throw fail('当前运行环境没有 Harness workspace，无法保存菜单项。')
     const workspace = await registry.resolveByPath(cwd)
     if (!workspace) throw fail('当前会话不属于任何 workspace，无法保存菜单项。')
     this.workspaces.set(sessionId, workspace.id)
@@ -157,6 +222,20 @@ export class UserViewRegistry {
     if (rest.length) await table.put(key, { views: rest, updatedAt: new Date().toISOString() })
     else await table.delete(key)
     return removed
+  }
+
+  /** Rename a personal entry without changing its stable route or widening its collection. */
+  async rename(sessionId: string, identity: string, id: string, label: string): Promise<void> {
+    const table = await this.table(),
+      key = await this.key(sessionId, identity)
+    const views = table.get(key)?.views ?? []
+    const old = views.find(v => v.id === id && v.origin !== 'role')
+    if (!old) throw fail('菜单项不存在。')
+    if (views.some(v => v.id !== id && v.label === label)) throw fail(`已经有名为“${label}”的菜单项。`)
+    await table.put(
+      key,
+      entry.parse({ views: views.map(v => (v.id === id ? { ...v, label } : v)), updatedAt: new Date().toISOString() }),
+    )
   }
 
   /** Forget a session's workspace, e.g. when the plugin restarts. */

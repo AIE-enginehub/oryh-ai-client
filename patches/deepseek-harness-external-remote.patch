@@ -1,8 +1,8 @@
 diff --git a/packages/typert/generator/src/analyzer.ts b/packages/typert/generator/src/analyzer.ts
-index f5d629a82f..c1b45aabd7 100644
+index e4e4d9f8a2..e44b0ca2f9 100644
 --- a/packages/typert/generator/src/analyzer.ts
 +++ b/packages/typert/generator/src/analyzer.ts
-@@ -1936,7 +1936,19 @@ class FaceAnalyzer {
+@@ -2095,7 +2095,19 @@ class FaceAnalyzer {
          && ts.isStringLiteral(current.name)
          && current.name.text === '@deepseek-ai/dsh-typert-protocol') return true
      }
@@ -24,13 +24,13 @@ index f5d629a82f..c1b45aabd7 100644
  
    private validateInvocationIdentity(packages: readonly PackageModel[]): void {
 diff --git a/packages/typert/generator/tests/remote-model.spec.ts b/packages/typert/generator/tests/remote-model.spec.ts
-index 12ff2f4d07..dcfcb768c1 100644
+index c46e502615..d311786ccf 100644
 --- a/packages/typert/generator/tests/remote-model.spec.ts
 +++ b/packages/typert/generator/tests/remote-model.spec.ts
-@@ -48,6 +48,35 @@ afterEach(() => {
- })
+@@ -286,6 +286,35 @@ void binaryTree
+ `)
+   })
  
- describe('Remote model generation', { timeout: 60_000 }, () => {
 +  it('recognizes protocol declarations installed outside the plugin workspace', () => {
 +    const root = copyFixture()
 +    const dependency = join(root, 'node_modules/@deepseek-ai/dsh-typert-protocol')

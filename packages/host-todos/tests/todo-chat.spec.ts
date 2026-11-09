@@ -89,7 +89,7 @@ describe('visible todo navigation', () => {
       await expect(f.todos.openTodo('s', 1, 'v1', new AbortController().signal)).rejects.toThrow(/列表已改变/)
       for (const index of [0, 3, 1.5])
         await expect(f.todos.openTodo('s', index, 'v2', new AbortController().signal)).rejects.toThrow(/序号/)
-      f.page.sync('list-projects')
+      f.page.sync('inventory-item-details')
       await expect(f.todos.visibleTodos('s')).rejects.toThrow(/没有已同步/)
     } finally {
       await f.close()
@@ -142,7 +142,7 @@ describe('visible todo navigation', () => {
       })
       const result = f.todos.read('s')
       await new Promise(r => setTimeout(r, 0))
-      f.page.sync('list-projects')
+      f.page.sync('inventory-item-details')
       release()
       await expect(result).rejects.toThrow(/页面已改变/)
     } finally {

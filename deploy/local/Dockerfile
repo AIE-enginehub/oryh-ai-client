@@ -11,7 +11,7 @@ COPY oryh-ai-client/patches/deepseek-harness-external-remote.patch ./external-re
 RUN if git apply --check external-remote.patch 2>/dev/null; then git apply external-remote.patch; \
     else git apply --check --reverse external-remote.patch; fi && rm -f external-remote.patch
 RUN pnpm install --frozen-lockfile
-ARG DSH_CLIENT_COMMIT_HASH=c291e7961a
+ARG DSH_CLIENT_COMMIT_HASH=504a01a957
 RUN find packages vendor -type d -empty -delete
 RUN rm -f tsconfig.host.tsbuildinfo tsconfig.client.tsbuildinfo && pnpm run build:native-system && node --max-old-space-size=4096 node_modules/typescript/bin/tsc -b tsconfig.host.json
 RUN NODE_OPTIONS=--max-old-space-size=4096 DSH_CLIENT_COMMIT_HASH=$DSH_CLIENT_COMMIT_HASH pnpm build
@@ -21,6 +21,9 @@ WORKDIR /opt/oryh-ai-client
 COPY oryh-ai-client/ ./
 RUN pnpm install --frozen-lockfile && pnpm build
 ENV HOME=/home/node DSH_HOME=/home/node/.dsh XDG_DATA_HOME=/home/node/.local/share
+# No sandbox backend (bubblewrap, Landlock) can confine a command in this container, so the Chat agent
+# gets no shell here: every command was refused and the agent kept asking for full access instead.
+ENV ORYH_CHAT_SHELL=0
 RUN mkdir -p /home/node/.dsh /home/node/.local/share && chown -R node:node /home/node
 USER node
 EXPOSE 4173

@@ -5,22 +5,28 @@ The AI client for ORYH: Host plugins, Client plugins and the `oryh-web` Profile,
 
 The window has three columns: the business menu on the left, the ordinary business pages in the middle,
 and Chat on the right. Harness provides the startup, the authentication, the sessions, the model settings
-and the plugin lifecycle; the plugins here provide the ORYH enterprise connection, the business lists and
-the forms — one Host plugin and one Client plugin per business domain, with a pane bridge that ties Chat
-to whatever the middle column is showing.
+and the plugin lifecycle; the plugins here provide the ORYH enterprise connection, the to-do page, the pages
+and lists a person has the agent make for them, and a pane bridge that ties Chat to whatever the middle
+column is showing.
 
 ## What it does
 
-- **To-dos**: the ones assigned to you, and the documents behind them.
-- **Timesheets**: query, create, edit and submit; managers approve.
-- **Expenses**: locally encrypted drafts, a check before sending, create and submit.
-- **Projects**: query and create.
-- **Sales orders, inventory, shipments**: query and filter, and keep a filter as a menu entry of your own.
-- **Chat**: the agent reads and writes business data through ORYH's MCP and skills, and can open the pages
-  and forms in the middle column. Whether a write needs confirmation first is decided by the skills ORYH
-  serves, not by this client.
+- **To-dos**: the one built-in page — the ones assigned to you, and the documents behind them.
+- **Pages of your own**: say in Chat what you want to see and the agent makes it a page or a list in your
+  menu — a custom page built from DeepSeek Harness components by default, or your own markup in a sandboxed
+  frame when you ask for that. A page shows the data of its last run and says what it is doing while it
+  refreshes.
+- **Forms in the conversation**: ask to record a document and the agent puts a form under its answer, with
+  lines you can add and totals that follow what you type; a field that points at another ORYH record is
+  chosen from a list or a search dialog, never typed.
+- **Chat**: the agent is the primary client. It reads and writes business data through ORYH's MCP and
+  skills — timesheets, expenses, projects, orders — and before a write it lists what it is about to write
+  and asks. It can read a spreadsheet or text file attached to the conversation.
 
-Credentials stay on the Host side and in the system keychain; the browser reaches business services
+Timesheet, expense and project pages used to be built in. Those plugins have been removed; the agent
+handles that work through ORYH's own tools.
+
+Enterprise credentials stay in Harness’s Host-only credentials service; older keychain logins migrate once. New logins do not access the OS keychain. The browser reaches business services
 through generated, typed Remote calls. Every session is pinned to one ORYH tenant and one employee identity.
 
 ## Running it with Docker Compose
@@ -29,12 +35,12 @@ You need Docker and the two source directories side by side:
 
 ```sh
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout c291e7961a
+git -C deepseek-harness checkout dsh-v0.2.1-rc.4
 git clone https://github.com/AIE-enginehub/oryh-ai-client.git
 cd oryh-ai-client
 ```
 
-Harness is pinned to `c291e7961a`: this repository depends on a fix to external-plugin Remote generation
+Harness is pinned to `dsh-v0.2.1-rc.4`: this repository depends on a fix to external-plugin Remote generation
 that is not upstream yet (`patches/`). The patch is exported against that commit, and the image build
 applies it for you.
 
@@ -51,32 +57,39 @@ a **single-user** client: the first account to sign in is the one this container
 
 ## Developing locally
 
-You need Node.js 24, pnpm 11, and `deepseek-harness` beside this directory (this repository depends on it
-through `link:`). Check Harness out at `c291e7961a` and apply the patch before installing, or the patch
-check in `pnpm build` stops the build:
+You need Node.js 24 (`.nvmrc` says so; `nvm use` picks it up) and pnpm from `corepack enable`. This
+repository depends through `link:` on a `deepseek-harness` checkout beside it, at the commit named in
+[`patches/`](patches/README.md), with one patch of ours applied and Harness built. One command prepares it:
 
 ```sh
-git -C ../deepseek-harness apply ../oryh-ai-client/patches/deepseek-harness-external-remote.patch
+pnpm run harness:setup   # clone Harness if missing; an existing checkout must already be at the pinned commit, otherwise the script stops and prints how to move it
 pnpm install
-pnpm build      # build the plugins and generate the Remote descriptors
-pnpm verify     # lint, typecheck and tests
-pnpm start      # start the oryh-web Profile
+pnpm verify              # build the plugins, generate the Remote descriptors, lint, typecheck and test
+pnpm start               # start the oryh-web Profile
 ```
+
+Harness is not ours, so nothing is committed there: the patch lives in this repository and is applied to
+your own checkout. Two things go wrong when the first step is done by hand. Run pnpm inside the Harness
+directory rather than with `pnpm -C` from here, because corepack takes the pnpm version from the directory
+it runs in and Harness pins a different one. And build Harness after applying the patch, because the
+generator this repository calls runs from Harness's build output; the patch check that opens `pnpm build`
+stops a build that would run without it.
 
 ## What is where
 
 | Directory | Contents |
 | --- | --- |
-| `packages/foundation`, `pages`, `store` | Shared ground: the error type and identifiers, the business page registry, encrypted revisioned storage |
-| `packages/core` | The ORYH runtime on the Host side: connection, credentials, deterministic operations, encrypted drafts |
+| `packages/foundation`, `pages` | Shared ground: the error type and identifiers, the page registry |
+| `packages/core` | The ORYH runtime on the Host side: connection, credentials, the deterministic to-do read |
 | `packages/workspace` | Enterprise selection and workbench state, without a UI framework |
-| `packages/timesheets`, `expenses`, `projects`, `records`, `todos` | Each business domain's operations and checks |
+| `packages/records`, `todos` | Reading ORYH's collections and to-dos, and the words states are shown in |
 | `packages/host-connection` | Host plugin: the enterprise connection, skills and the MCP client (Remote namespace `oryh`) |
 | `packages/host-pane` | Host plugin: the pane bridge — binding a Chat session to the middle column, its page state and the agent's commands |
-| `packages/host-todos`, `host-timesheets`, `host-expenses`, `host-projects`, `host-records` | One Host plugin per business domain |
-| `packages/host-agent` | The ORYH business agent: system prompt, tools, and ORYH's MCP |
-| `packages/client-frame` | The browser frame: the three-column layout, the menu, the connection page, the pane hooks |
-| `packages/client-todos`, `client-timesheets`, `client-expenses`, `client-projects`, `client-records` | One Client plugin per business page |
+| `packages/host-todos`, `host-records`, `host-analytics` | Host plugins: to-dos; the lists a person makes; custom pages and the form in the conversation |
+| `packages/host-agent` | The ORYH business agent: system prompt, tool policy, ORYH's MCP tools, reading attachments |
+| `packages/client-frame` | The root layout plugin in the browser: the three-column layout, the menu, the connection page, the pane hooks |
+| `packages/client-kit` | A static library bundled into each client plugin: controls on Harness's primitives, the shared pieces of a list page, formatting |
+| `packages/client-todos`, `client-records`, `client-analytics` | The page plugins: the to-do page; lists; custom pages and the form in the conversation |
 | `packages/dsh-bundle` | The `oryh-web` Profile and the plugin bundle |
 | `deploy/local` | The single-user container: its sign-in gateway and model configuration |
 

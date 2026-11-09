@@ -20,16 +20,90 @@
   disabled: true
 - id: ui-agent-preset
   disabled: true
+# A terminal and a plugin manager, neither of which a business workbench has a use for: the terminal
+# would put a shell where the middle column shows business pages, and the plugin manager installs and
+# starts bundles from the browser — this Profile's bundles are the ones the install script put there.
+# Both are disabled rather than hidden, as "open locally" above is.
+- id: terminal-controller
+  disabled: true
+- id: ui-sidebar-terminal
+  disabled: true
+- id: plugin-manager
+  disabled: true
+- id: ui-plugin-manager
+  disabled: true
+# The sidebar browser stays on the desktop (decided 2026-09-18). Since DSH 0.1.7 web-app turns it on only
+# for a profile named `desktop`, and this one is `oryh-web`. The server bundle turns it off again.
+- id: ui-sidebar-browser
+  disabled: false
+# The model. Since DSH 0.1.7 llm-deepseek speaks only DeepSeek's Anthropic-shaped Messages API and refuses
+# a `protocol` setting, while the endpoints this client is pointed at — the relays a deployment configures
+# through DEEPSEEK_BASE_URL — serve chat completions; Messages requests to one of those fail every turn,
+# which is how a model outage looks from the workbench (docs/51 B3). So llm-deepseek is off and the same
+# endpoint is an llm-pi-ai route, under the provider id sessions already record (`deepseek-official`): an
+# existing session keeps its last provider and model, and follows. The wire is what llm-deepseek sent —
+# thinking enabled with `reasoning_effort` low, high or max, disabled for off — at its old capacities.
+# The model and the default effort are the deployment's (ORYH_MODEL, ORYH_MODEL_REASONING_EFFORT).
+- id: llm-deepseek
+  disabled: true
+- id: llm-pi-ai
+  config:
+    providers:
+      deepseek-official:
+        displayName: DeepSeek
+        apiKeyEnv: DEEPSEEK_API_KEY
+        api: openai-completions
+        baseURL: !!js "process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'"
+        reasoning: !!js "process.env.ORYH_MODEL_REASONING_EFFORT || 'high'"
+        # pi-ai speaks DeepSeek's dialect only for a provider named `deepseek` or an address on deepseek.com;
+        # a relay under `deepseek-official` would get a standard OpenAI endpoint's — the system prompt in a
+        # `developer` role DeepSeek does not have, `max_completion_tokens`, `store`, and no reasoning handed
+        # back between tool calls. So what pi-ai sets for DeepSeek is stated here.
+        compat:
+          thinkingFormat: deepseek
+          supportsReasoningEffort: true
+          supportsDeveloperRole: false
+          supportsStore: false
+          maxTokensField: max_tokens
+          requiresReasoningContentOnAssistantMessages: true
+        models:
+          - id: !!js "process.env.ORYH_MODEL || 'deepseek-v4-flash'"
+            contextWindow: 1000000
+            maxTokens: 256000
+            input: [text]
+            reasoningEfforts:
+              'off': disabled
+              low: low
+              high: high
+              max: max
+# llm-deepseek is also the only adapter that sends the session log along with a model request, so with it
+# off nothing is uploaded, and the plugin that prepares the log and its switch in Settings → General
+# (DSH 0.2.0) would only suggest that something is. Off with it; should llm-deepseek ever return, the
+# session log, which holds the enterprise's business data, stays here until someone decides otherwise.
+- id: session-log-deepseek
+  disabled: true
+- id: ui-settings-session-log
+  disabled: true
+# Work details in Chat stay as they were. Since DSH 0.2.0 the Web shows a running turn's steps expanded
+# ("Detailed") unless a preference is saved; a business workbench reads better with the collapsed summaries
+# it had before ("Standard"). This is the default only: a person's own choice in Settings → General is
+# saved above this layer. DSH 0.2.1 persists these settings through the Host for every authenticated browser.
+- id: ui-chat
+  config:
+    transcriptView: standard
 # dsh-base defaults new Agents to deepseek-flash (V41), which relayed DeepSeek
 # endpoints reject with HTTP 412. A patch replaces the row's whole config, so both
-# keys are restated. A saved selection in settings.yaml still wins for an existing profile.
+# keys are restated. A saved selection in settings still wins for an existing profile.
 - id: agent-default-model
   config:
     provider: deepseek-official
-    model: deepseek-v4-flash
-# The ORYH Host: one connection layer, the pane bridge, one plugin per business page, and the agent
-# that steers them. Order matters only where `inject` says so: pages need the pane, the agent needs
-# the pages' contributions to be there when it installs its policy.
+    model: !!js "process.env.ORYH_MODEL || 'deepseek-v4-flash'"
+# The ORYH Host: one connection layer, the pane bridge, the pages, and the agent that steers them. On
+# this line (docs/57) the pages are the person's todos, the lists they had made
+# (records) and their custom pages (analytics): the timesheet, expense and project plugins are not
+# loaded, and that work is done in Chat with ORYH's own tools and skills. Order matters only where
+# `inject` says so: pages need the pane, the agent needs the pages' contributions to be there when it
+# installs its policy.
 - insert:
     - id: oryh-directory-picker-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
@@ -39,18 +113,19 @@
       name: '@oryh/dsh-connection'
       config:
         developmentOnly: true
+        # The Docker image sets ORYH_CHAT_SHELL=0: no sandbox backend runs in its container.
+        shell: !!js "process.env.ORYH_CHAT_SHELL !== '0'"
+        # The Docker image makes a workspace directory and names it here, so the first message is sent
+        # and not lost to a directory dialog. Unset on a desktop, where the person picks their own.
+        workspace: !!js process.env.ORYH_LOCAL_WORKSPACE
     - id: oryh-pane
       name: '@oryh/dsh-pane'
     - id: oryh-todos
       name: '@oryh/dsh-todos'
-    - id: oryh-timesheets
-      name: '@oryh/dsh-timesheets'
-    - id: oryh-expenses
-      name: '@oryh/dsh-expenses'
-    - id: oryh-projects
-      name: '@oryh/dsh-projects'
     - id: oryh-records
       name: '@oryh/dsh-records'
+    - id: oryh-analytics
+      name: '@oryh/dsh-analytics'
     - id: oryh-agent
       name: '@oryh/dsh-agent'
     # The browser: the frame first (menu, connection screen, pane bridge, page kit), then one page
@@ -59,11 +134,44 @@
       name: '@oryh/dsh-client-frame'
     - id: oryh-client-todos
       name: '@oryh/dsh-client-todos'
-    - id: oryh-client-timesheets
-      name: '@oryh/dsh-client-timesheets'
-    - id: oryh-client-expenses
-      name: '@oryh/dsh-client-expenses'
-    - id: oryh-client-projects
-      name: '@oryh/dsh-client-projects'
     - id: oryh-client-records
       name: '@oryh/dsh-client-records'
+    - id: oryh-client-analytics
+      name: '@oryh/dsh-client-analytics'
+
+# ORYH provides product branding through public UI slots. Provider identities stay truthful in Models.
+- id: ui-brand-official
+  disabled: true
+# ORYH signs in to an enterprise; models use separately configured API credentials. The upstream
+# account UI owns the Account tab, balances, login prompts and account onboarding, while the LLM
+# adapter contributes the DeepSeek Account row to Models. Remove both, together with their Host
+# account services, so a stored Harness account cannot reintroduce either surface on desktop.
+# Keep credentials, llm-pi-ai, ui-settings-models and ui-model-selection for API providers.
+- id: ui-settings-account
+  disabled: true
+- id: account-controller
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- id: llm-deepseek-account
+  disabled: true
+- id: ui-settings-models
+  config:
+    credentialOnboarding: false
+# The implementation inventory is developer chrome, not part of the ORYH workspace.
+- id: ui-settings-plugins
+  disabled: true
+
+# Keep business context and existing product scope on desktop, local and server Hosts alike.
+- id: harness-dev-context
+  disabled: true
+- id: schedule
+  disabled: true
+- id: ui-schedule
+  disabled: true
+- id: ui-deepseek-model-label-1017
+  disabled: true
+
+# The More menus launch plugin management and the Cordis creator preset, outside ORYH business pages.
+- id: entry-customization
+  disabled: true

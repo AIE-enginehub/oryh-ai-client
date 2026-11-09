@@ -1,5 +1,6 @@
 import { Entry } from '@napi-rs/keyring'
 import type { ConnectionId } from './brand.js'
+import type { ConnectionSummary } from './connections.js'
 import { OryhClientError } from './errors.js'
 
 /** Secret pair returned by the ORYH device flow and refresh endpoint. */
@@ -11,12 +12,16 @@ export interface CredentialPair {
 
 /** Host-only storage for short-lived ORYH access and refresh credentials. */
 export interface CredentialVault {
+  /** Bind persisted credentials to the verified server, account and tenant for this connection. */
+  bindConnection?(connection: ConnectionSummary): Promise<void>
   read(connectionId: ConnectionId): Promise<CredentialPair | undefined>
+  /** Reconcile another Host's token rotation before refreshing a cached credential. */
+  readFresh?(connectionId: ConnectionId): Promise<CredentialPair | undefined>
   write(connectionId: ConnectionId, credential: CredentialPair): Promise<void>
   remove(connectionId: ConnectionId): Promise<void>
 }
 
-/** Test and development-only vault; production adapters must use the OS keychain. */
+/** Ephemeral vault for tests and trusted server bindings; desktop persistence uses the Harness service. */
 export class MemoryCredentialVault implements CredentialVault {
   readonly #credentials = new Map<ConnectionId, CredentialPair>()
 
@@ -56,15 +61,24 @@ export interface KeychainCredentialVaultOptions {
 
 const DEFAULT_KEYCHAIN_SERVICE = 'ORYH AI Client'
 
+type KeychainSnapshot =
+  | { readonly value: CredentialPair | undefined; readonly error?: never }
+  | { readonly error: OryhClientError; readonly value?: never }
+
 /**
- * Production credential adapter backed by the native macOS Keychain, Windows
+ * Legacy migration adapter backed by the native macOS Keychain, Windows
  * Credential Manager, or Linux Secret Service supplied by @napi-rs/keyring.
+ * New desktop logins use Harness records; this adapter reads older installations.
  * It stores one serialized credential pair per opaque local connection ID;
  * no credential is written to application files or returned to the browser.
+ * Normal requests reuse a Host-lifetime memory snapshot. Token renewal explicitly
+ * reconciles the OS store; writes replace the snapshot and removal clears it.
+ * Failed OS access is latched rather than repeatedly prompting during retries.
  */
 export class KeychainCredentialVault implements CredentialVault {
   readonly #serviceName: string
   readonly #entryFactory: KeychainEntryFactory
+  readonly #snapshots = new Map<ConnectionId, KeychainSnapshot>()
 
   constructor(options: KeychainCredentialVaultOptions = {}) {
     this.#serviceName = options.serviceName ?? DEFAULT_KEYCHAIN_SERVICE
@@ -72,14 +86,33 @@ export class KeychainCredentialVault implements CredentialVault {
   }
 
   async read(connectionId: ConnectionId): Promise<CredentialPair | undefined> {
-    let raw: string | null
+    return this.value(this.#snapshots.get(connectionId) ?? this.load(connectionId))
+  }
+
+  async readFresh(connectionId: ConnectionId): Promise<CredentialPair | undefined> {
+    // Denial is not permission to ask again on each automatic retry. A successful
+    // explicit sign-in write or a new Host lifetime can unlock this state.
+    const previous = this.#snapshots.get(connectionId)
+    if (previous?.error) throw previous.error
+    return this.value(this.load(connectionId))
+  }
+
+  private load(connectionId: ConnectionId): KeychainSnapshot {
+    let snapshot: KeychainSnapshot
     try {
-      raw = this.entry(connectionId).getPassword()
+      const raw = this.entry(connectionId).getPassword()
+      snapshot = { value: raw === null ? undefined : decodeCredential(raw) }
     } catch {
-      throw credentialStoreError('read')
+      snapshot = { error: credentialStoreError('read') }
     }
-    if (raw === null) return undefined
-    return decodeCredential(raw)
+    this.#snapshots.set(connectionId, snapshot)
+    return snapshot
+  }
+
+  private value(snapshot: KeychainSnapshot): CredentialPair | undefined {
+    if (snapshot.error) throw snapshot.error
+    // Callers must not be able to mutate the process-local credential snapshot.
+    return snapshot.value === undefined ? undefined : { ...snapshot.value }
   }
 
   async write(connectionId: ConnectionId, credential: CredentialPair): Promise<void> {
@@ -87,16 +120,22 @@ export class KeychainCredentialVault implements CredentialVault {
     try {
       this.entry(connectionId).setPassword(encoded)
     } catch {
-      throw credentialStoreError('write')
+      const error = credentialStoreError('write')
+      this.#snapshots.set(connectionId, { error })
+      throw error
     }
+    this.#snapshots.set(connectionId, { value: { ...credential } })
   }
 
   async remove(connectionId: ConnectionId): Promise<void> {
     try {
       this.entry(connectionId).deleteCredential()
     } catch {
-      throw credentialStoreError('remove')
+      const error = credentialStoreError('remove')
+      this.#snapshots.set(connectionId, { error })
+      throw error
     }
+    this.#snapshots.set(connectionId, { value: undefined })
   }
 
   private entry(connectionId: ConnectionId): KeychainEntry {

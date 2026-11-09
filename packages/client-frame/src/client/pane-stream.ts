@@ -3,48 +3,14 @@ import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 // Values, not types: reachable because the gateway is declared external and answered by the
 // loader module table. See docs/14, "跨插件值引用".
 import { RemoteSnapshotStream, RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
-import type { AnyPaneCommand, PaneBindRequest, PaneFrame, PaneState } from '@oryh/dsh-pane/types'
+import type { PaneStreamHandle, PaneStreamState } from '@oryh/ai-client-kit'
+import type { PaneBindRequest, PaneFrame } from '@oryh/dsh-pane/types'
 
-/**
- * Where the linkage stands, so a disconnect is never shown as a refusal.
- *
- * `idle` means no session is bound in this subtree at all; `reconnecting` keeps the last
- * frame published while the carrier retries; `rejected` is terminal and publishes none.
- */
-export type PaneStatus = 'idle' | 'connecting' | 'synced' | 'reconnecting' | 'rejected'
-
-/** Published pane state: the last full frame the Host sent, plus where the linkage stands. */
-export interface PaneStreamState {
-  /** Every command pending for the bound session. */
-  readonly commands: readonly AnyPaneCommand[]
-  /** Facts the Host publishes beside the commands. */
-  readonly state: PaneState
-  /** Connection state, so transient loss and a final refusal read differently. */
-  readonly status: PaneStatus
-  /** Set once the linkage fails terminally, whether binding or streaming. */
-  readonly error?: string
-}
-
-/** React-free subscription surface, so views never own a transport. */
-export interface PaneStreamStore {
-  getSnapshot(): PaneStreamState
-  subscribe(listener: () => void): () => void
-}
-
-/** A store plus the lifecycle its owner drives. */
-export interface PaneStreamHandle extends PaneStreamStore {
-  /** Begin consuming; repeated calls are inert. */
-  start(): void
-  /** Stop permanently and wait for the consumer to become quiescent. */
-  dispose(): Promise<void>
-}
-
-export const nothingBound: PaneStreamState = { commands: [], state: {}, status: 'idle' }
 const streamName = 'ORYH pane stream'
 
 /** Text to publish for a terminal stream failure. */
-function failureMessage(error: unknown): string {
-  return error instanceof Error && error.message.length > 0 ? error.message : 'Chat 指令同步已中断。'
+function failureMessage(error: unknown, broken: () => string): string {
+  return error instanceof Error && error.message.length > 0 ? error.message : broken()
 }
 
 /**
@@ -60,9 +26,14 @@ function failureMessage(error: unknown): string {
  * replayed or lost.
  * @param remote - client Remote carrying the mounted ORYH namespace.
  * @param request - the session and connection to follow.
+ * @param broken - what to say of a stream that failed without saying why.
  * @returns an unstarted store owned by the caller.
  */
-export function createPaneStream(remote: ClientRemote, request: PaneBindRequest): PaneStreamHandle {
+export function createPaneStream(
+  remote: ClientRemote,
+  request: PaneBindRequest,
+  broken: () => string,
+): PaneStreamHandle {
   let state: PaneStreamState = { commands: [], state: {}, status: 'connecting' }
   const listeners = new Set<() => void>()
   const publish = (next: PaneStreamState): void => {
@@ -96,7 +67,7 @@ export function createPaneStream(remote: ClientRemote, request: PaneBindRequest)
     // The pending set is dropped on a terminal failure instead of staying published: a command
     // is an instruction for the page, and acting on a stale one after the stream died is wrong.
     failed: error => {
-      publish({ commands: [], state: {}, status: 'rejected', error: failureMessage(error) })
+      publish({ commands: [], state: {}, status: 'rejected', error: failureMessage(error, broken) })
     },
   })
   return {

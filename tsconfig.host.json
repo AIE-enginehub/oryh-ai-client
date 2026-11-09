@@ -14,19 +14,13 @@
       "path": "packages/host-todos/tsconfig.json"
     },
     {
-      "path": "packages/host-timesheets/tsconfig.json"
-    },
-    {
-      "path": "packages/host-expenses/tsconfig.json"
-    },
-    {
-      "path": "packages/host-projects/tsconfig.json"
-    },
-    {
       "path": "packages/host-records/tsconfig.json"
     },
     {
       "path": "packages/host-agent/tsconfig.json"
+    },
+    {
+      "path": "packages/host-analytics/tsconfig.json"
     }
   ],
   "extends": "./tsconfig.base.json",
@@ -62,24 +56,6 @@
       "@oryh/dsh-todos/types": [
         "./packages/host-todos/src/types.ts"
       ],
-      "@oryh/dsh-timesheets": [
-        "./packages/host-timesheets/src/index.ts"
-      ],
-      "@oryh/dsh-timesheets/types": [
-        "./packages/host-timesheets/src/types.ts"
-      ],
-      "@oryh/dsh-expenses": [
-        "./packages/host-expenses/src/index.ts"
-      ],
-      "@oryh/dsh-expenses/types": [
-        "./packages/host-expenses/src/types.ts"
-      ],
-      "@oryh/dsh-projects": [
-        "./packages/host-projects/src/index.ts"
-      ],
-      "@oryh/dsh-projects/types": [
-        "./packages/host-projects/src/types.ts"
-      ],
       "@oryh/dsh-records": [
         "./packages/host-records/src/index.ts"
       ],
@@ -88,6 +64,15 @@
       ],
       "@oryh/dsh-agent": [
         "./packages/host-agent/src/index.ts"
+      ],
+      "@oryh/dsh-analytics": [
+        "./packages/host-analytics/src/index.ts"
+      ],
+      "@oryh/dsh-analytics/types": [
+        "./packages/host-analytics/src/types.ts"
+      ],
+      "@oryh/dsh-analytics/model": [
+        "./packages/host-analytics/src/model.ts"
       ]
     },
     "types": [

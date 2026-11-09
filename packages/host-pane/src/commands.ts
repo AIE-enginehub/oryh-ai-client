@@ -118,6 +118,16 @@ export class CommandQueue {
   }
 
   /**
+   * Whether a tool is waiting on a lane's command.
+   * @param sessionId - owning session.
+   * @param lane - command lane.
+   * @returns true while a wait on that lane has neither settled nor failed.
+   */
+  waiting(sessionId: string, lane: string): boolean {
+    return this.#waits.get(sessionId)?.has(lane) ?? false
+  }
+
+  /**
    * Wait for the page to acknowledge a command on one lane.
    * @param sessionId - owning session.
    * @param lane - command lane; a second wait on it supersedes the first.

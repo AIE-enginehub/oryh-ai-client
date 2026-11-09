@@ -190,13 +190,22 @@ function normalizeLabel(value: string): string {
   return label
 }
 
+/** Operations saved views may still name on disk, though nothing runs them any more. */
+const RETIRED_OPERATIONS: ReadonlySet<string> = new Set(['my-expense-claims', 'list-projects'])
+
 function decodeStore(value: unknown): readonly SavedOperationView[] {
   const record = asRecord(value)
   if (record.version !== SAVED_OPERATION_STORE_VERSION || !Array.isArray(record.operations)) {
     throw new OryhClientError('ORYH saved-operation metadata is invalid.', 'connection-store-failed')
   }
   const seen = new Set<string>()
-  return record.operations.map(item => {
+  // A view saved over an operation this client no longer has — the expense-claim and project lists,
+  // removed on 2026-10-11 — is left out rather than read as a damaged store: the file is a person's own,
+  // and one such entry used to be enough to refuse the whole of it.
+  const kept = record.operations.filter(
+    item => !RETIRED_OPERATIONS.has(String((item as { operationId?: unknown } | null)?.operationId)),
+  )
+  return kept.map(item => {
     const operation = decodeView(item)
     if (seen.has(operation.id)) {
       throw new OryhClientError(
@@ -219,7 +228,7 @@ function decodeView(value: unknown): SavedOperationView {
     !/^saved-operation-[1-9][0-9]*$/u.test(id) ||
     !/^oryh-[1-9][0-9]*$/u.test(rawConnectionId) ||
     !/^result-[1-9][0-9]*$/u.test(rawSourceResultId) ||
-    (rawOperationId !== 'my-open-todos' && rawOperationId !== 'my-expense-claims' && rawOperationId !== 'list-projects')
+    rawOperationId !== 'my-open-todos'
   ) {
     throw new OryhClientError('ORYH saved-operation metadata is invalid.', 'connection-store-failed')
   }

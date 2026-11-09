@@ -24,30 +24,6 @@ export interface OryhIdentity {
   readonly tenant: OryhTenant
 }
 
-/** A project list item from `/projects`. */
-export interface OryhProject {
-  readonly createdAt?: string | null
-  readonly updatedAt?: string | null
-  readonly id: string
-  readonly code: string | null
-  readonly name: string
-  readonly client: string | null
-  readonly status: string
-  readonly startDate: string | null
-  readonly endDate: string | null
-}
-
-/** An expense claim owned by the current employee from `/expense-claims`. */
-export interface OryhExpenseClaim {
-  readonly id: string
-  readonly employeeId: string
-  readonly title: string
-  readonly claimDate: string | null
-  readonly currency: string
-  readonly status: string
-  readonly submittedAt: string | null
-}
-
 /** The target summary ORYH may include beside a todo. */
 export interface OryhTodoTarget {
   readonly entityType: string
@@ -160,40 +136,6 @@ function decodeList<Value>(value: unknown, label: string, item: (value: unknown)
     data: envelope.data.map(item),
     meta: decodeMeta(envelope.meta),
   }
-}
-
-/** Decode a project list envelope from ORYH. */
-export function decodeProjects(value: unknown): OryhList<OryhProject> {
-  return decodeList(value, 'projects', item => {
-    const project = record(item, 'project')
-    return {
-      id: string(project.id, 'project id'),
-      code: optionalString(project.project_code, 'project code'),
-      name: string(project.project_name, 'project name'),
-      client: optionalString(project.client, 'project client'),
-      status: string(project.status, 'project status'),
-      startDate: optionalString(project.start_date, 'project start date'),
-      endDate: optionalString(project.end_date, 'project end date'),
-      createdAt: optionalString(project.created_at, 'project creation time'),
-      updatedAt: optionalString(project.updated_at, 'project update time'),
-    }
-  })
-}
-
-/** Decode an employee-scoped expense-claim list envelope from ORYH. */
-export function decodeExpenseClaims(value: unknown): OryhList<OryhExpenseClaim> {
-  return decodeList(value, 'expense claims', item => {
-    const claim = record(item, 'expense claim')
-    return {
-      id: string(claim.id, 'expense claim id'),
-      employeeId: string(claim.employee_id, 'expense claim employee id'),
-      title: string(claim.title, 'expense claim title'),
-      claimDate: optionalString(claim.claim_date, 'expense claim date'),
-      currency: string(claim.currency, 'expense claim currency'),
-      status: string(claim.status, 'expense claim status'),
-      submittedAt: optionalString(claim.submitted_at, 'expense claim submitted at'),
-    }
-  })
 }
 
 /** Decode a todo list envelope from ORYH. */

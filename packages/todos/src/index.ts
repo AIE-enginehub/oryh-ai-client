@@ -20,6 +20,18 @@ export interface TodoConnection {
 }
 
 /**
+ * What a Host offers this service to read with; the connection layer's `OryhDomainReads` satisfies it.
+ * Written here as a shape, so this library names no Host.
+ */
+export interface TodoReads {
+  readonly http: TodoHttp
+  /** A connection already verified. */
+  current(id: string): TodoConnection
+  /** The same, once a verification under way has settled. */
+  settled(id: string): Promise<TodoConnection>
+}
+
+/**
  * Narrow a response fragment to an object.
  *
  * This used to be imported from the expense contracts, so a malformed todo response
@@ -35,57 +47,102 @@ const object = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>
 }
 
-const routes: Record<string, { path: string; root: string }> = {
-  purchase_request: { path: 'purchase-requests', root: 'request' },
-  purchase_order: { path: 'purchase-orders', root: 'po' },
-  sales_quotation: { path: 'sales-quotations', root: 'quotation' },
-  sales_order: { path: 'sales-orders', root: 'order' },
-  timesheet_header: { path: 'timesheet-headers', root: 'header' },
-  expense_claim: { path: 'expense-claims', root: 'claim' },
-}
-// Explicit business projection. Custom fields, attachments, metadata and credentials never enter chat.
-const fields = new Set(
-  'id employee_id title description status todo_type due_at entity_type entity_id quote_number revision_no order_no po_number request_date needed_by vendor_name_snapshot customer_name_snapshot currency submitted_at source_report_text created_at updated_at quote_date valid_until payment_terms delivery_terms total_amount remarks outcome_note period_start period_end claim_date computed_total estimated_total adjustments_total adjusted_total unpriced_item_count pending_sku_count product_name_snapshot product_code sku_code name spec unit quantity unit_price list_price amount line_total tax_rate discount_rate tax_amount notes task hours work_date work_type project_name_snapshot category expense_date merchant round_no sequence_no action comment approver_id approver_role acted_at adjustment_type reason'.split(
-    ' ',
-  ),
-)
+/**
+ * What never enters Chat from a linked document, by category rather than by name: custom fields, whose
+ * contents nobody here chose; attachments; system metadata; the tenant; and anything that names a
+ * credential. Everything else a document carries is its business content, whatever the document is.
+ */
+const WITHHELD = new Set(['custom_fields', 'attachments', 'metadata', 'tenant_id'])
+const CREDENTIAL = /token|secret|password|passwd|credential|api_?key|private_?key/i
+const withheld = (key: string) => WITHHELD.has(key) || key.endsWith('_jsonb') || CREDENTIAL.test(key)
+
+/** How deep the projection follows nested records: a document, its lines, and what a line names. */
+const DEPTH = 4
+
 function project(value: unknown, path: string, output: TodoDocument['sections'], depth = 0): void {
-  if (depth > 5) return
+  if (depth > DEPTH) return
   if (Array.isArray(value)) {
     value.forEach((v, i) => project(v, `${path} ${i + 1}`, output, depth + 1))
     return
   }
   if (!value || typeof value !== 'object') return
-  const entries = Object.entries(value),
+  const entries = Object.entries(value).filter(([key]) => !withheld(key)),
     flat = entries
-      .filter(([k, v]) => fields.has(k) && (v === null || ['string', 'number', 'boolean'].includes(typeof v)))
+      .filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v))
       .map(([name, v]) => ({ name, value: v === null ? '—' : String(v) }))
   if (flat.length) output.push({ name: path, fields: flat })
+  // Every nested record is followed — a sales order's lines, a leave's approvals, a custom object's
+  // children — so a document type this client has never seen still shows what hangs off it.
   for (const [key, v] of entries)
-    if (
-      [
-        'items',
-        'entries',
-        'approval_records',
-        'quotation',
-        'request',
-        'order',
-        'po',
-        'header',
-        'claim',
-        'product',
-        'sku',
-        'adjustments',
-      ].includes(key)
-    )
+    if (v !== null && typeof v === 'object' && (!Array.isArray(v) || v.some(x => x && typeof x === 'object')))
       project(v, `${path}/${key}`, output, depth + 1)
 }
+
+/** One entry of ORYH's own catalogue: a collection, its list path, and the words that mean it. */
+interface CatalogueEntry {
+  object_type: string
+  path: string
+  also_called?: string[]
+}
+
+/** How long one catalogue serves: it changes only when ORYH ships a collection. */
+const CATALOGUE_TTL_MS = 10 * 60_000
+
 export class TodoDetailService {
+  private catalogues = new Map<string, { at: number; entries: CatalogueEntry[] }>()
   constructor(
     private http: TodoHttp,
     private connection: (id: string) => TodoConnection,
     private verify: (id: string) => Promise<TodoConnection>,
   ) {}
+
+  /**
+   * The service over what a Host offers a domain to read with: the Host does not know this service, so
+   * the plugin that provides it builds it here.
+   * @param reads - ORYH's reads as a connection, and how to ask who that connection is.
+   * @returns a service of its own.
+   */
+  static over(reads: TodoReads): TodoDetailService {
+    return new TodoDetailService(
+      reads.http,
+      id => reads.current(id),
+      id => reads.settled(id),
+    )
+  }
+
+  /**
+   * Where a todo's linked document lives, as ORYH's own catalogue says.
+   *
+   * A todo names its document by `entity_type` — `employee_leave`, `sales_order`, `business_object` for a
+   * tenant's own object — and `GET /builtin-object-types` lists every collection with the words that
+   * mean it, singular included. ORYH derives that list from its own routes, so a document type added
+   * next month is readable here the day its endpoint is, with nothing to add to this client.
+   * @param id - verified connection.
+   * @param entityType - the todo's `entity_type`.
+   * @returns the collection's path, e.g. `/employee-leaves`, or undefined when ORYH has no such collection.
+   */
+  private async pathOf(id: string, entityType: string): Promise<`/${string}` | undefined> {
+    const hit = this.catalogues.get(id)
+    let entries = hit !== undefined && Date.now() - hit.at < CATALOGUE_TTL_MS ? hit.entries : undefined
+    if (!entries) {
+      const body = object(await this.http.request(connectionId(id), { path: '/builtin-object-types' }))
+      entries = (Array.isArray(body.data) ? body.data : []).filter(
+        (e): e is CatalogueEntry => !!e && typeof e.object_type === 'string' && typeof e.path === 'string',
+      )
+      this.catalogues.set(id, { at: Date.now(), entries })
+    }
+    const entry = entries.find(e => e.object_type === entityType || (e.also_called ?? []).includes(entityType))
+    return entry && /^\/[a-z][a-z0-9-]{0,63}$/.test(entry.path) ? (entry.path as `/${string}`) : undefined
+  }
+
+  /** The document ORYH answered: the one record in it whose id is the todo's entity id. */
+  private static documentIn(data: Record<string, unknown>, entityId: string): Record<string, unknown> | undefined {
+    if (data.id === entityId) return data
+    for (const value of Object.values(data))
+      if (value && typeof value === 'object' && !Array.isArray(value) && (value as { id?: unknown }).id === entityId)
+        return value as Record<string, unknown>
+    return undefined
+  }
   async read(id: string, todoId: string): Promise<TodoDocument> {
     await this.verify(id)
     const c = this.connection(id),
@@ -103,16 +160,23 @@ export class TodoDetailService {
     if (todo.id !== todoId || todo.employee_id !== employee)
       throw new OryhClientError('只能读取分配给当前员工的待办。', 'cross-connection-result')
     const entityType = String(todo.entity_type),
-      entityId = String(todo.entity_id),
-      route = routes[entityType]
-    if (!route) throw new OryhClientError('此待办类型尚未接入关联详情查询，请在 ORYH 查看。', 'operation-not-found')
-    const detail = object(
-      object(
-        await this.http.request(connectionId(id), { path: `/${route.path}/${encodeURIComponent(entityId)}/detail` }),
-      ).data,
-    )
+      entityId = String(todo.entity_id)
+    const path = await this.pathOf(id, entityType)
     guard()
-    if (object(detail[route.root]).id !== entityId)
+    if (!path)
+      throw new OryhClientError(`ORYH 的对象目录里没有“${entityType}”，无法读取关联单据。`, 'operation-not-found')
+    // The detail, where the collection has one, carries the lines and approvals; otherwise the record.
+    const record = `${path}/${encodeURIComponent(entityId)}` as const
+    let answer: unknown
+    try {
+      answer = await this.http.request(connectionId(id), { path: `${record}/detail` })
+    } catch (error) {
+      if (!(error instanceof OryhClientError && (error.status === 404 || error.status === 405))) throw error
+      answer = await this.http.request(connectionId(id), { path: record })
+    }
+    const detail = object(object(answer).data)
+    guard()
+    if (!TodoDetailService.documentIn(detail, entityId))
       throw new OryhClientError('关联单据与待办不匹配。', 'invalid-response')
     const sections: TodoDocument['sections'] = []
     project(todo, 'todo', sections)

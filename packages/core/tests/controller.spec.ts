@@ -46,20 +46,21 @@ describe('OryhClientController', () => {
         },
         meta: {},
       }),
+      // The to-do list is two reads: the open ones, then the most recent of the rest.
       jsonResponse(200, {
         data: [
           {
-            id: 'project-1',
-            project_code: 'P-01',
-            project_name: 'Pilot',
-            client: null,
-            status: 'active',
-            start_date: null,
-            end_date: null,
+            id: 'todo-1',
+            employee_id: 'employee-1',
+            entity_type: 'sales_order',
+            entity_id: 'order-1',
+            title: 'Pilot',
+            status: 'open',
           },
         ],
         meta: { total: 1 },
       }),
+      jsonResponse(200, { data: [], meta: { total: 1 } }),
     ])
     const host = new OryhClientHost({
       credentialVault: new MemoryCredentialVault(),
@@ -73,16 +74,12 @@ describe('OryhClientController', () => {
     const connected = await controller.pollConnection(started.authorizationId)
     if (connected.state !== 'connected') throw new Error('Expected a connected device flow')
     expect(JSON.stringify(connected)).not.toContain('private-access-key')
-    expect(controller.listOperations().map(operation => operation.id)).toEqual([
-      'my-open-todos',
-      'my-expense-claims',
-      'list-projects',
-    ])
+    expect(controller.listOperations().map(operation => operation.id)).toEqual(['my-open-todos'])
 
-    const result = await controller.execute(connected.connection.id, 'list-projects')
-    expect(result.result.data).toEqual([expect.objectContaining({ name: 'Pilot' })])
-    await expect(controller.reuse(connected.connection.id, 'list-projects', result.id)).resolves.toEqual(result)
-    expect(fetcher.calls).toHaveLength(4)
+    const result = await controller.execute(connected.connection.id, 'my-open-todos')
+    expect(result.result.data).toEqual([expect.objectContaining({ title: 'Pilot' })])
+    await expect(controller.reuse(connected.connection.id, 'my-open-todos', result.id)).resolves.toEqual(result)
+    expect(fetcher.calls).toHaveLength(5)
   })
 
   it('forgets a cancelled device authorization through the browser-safe Remote adapter', async () => {

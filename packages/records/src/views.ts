@@ -23,6 +23,8 @@ export const recordSpecs: Record<
       delivery_terms: '交付条件',
       contract_no: '合同号',
       project_id: '项目编号',
+      logistics_company: '物流公司',
+      logistics_tracking_no: '运单号',
       remarks: '备注',
     },
   },
@@ -55,6 +57,7 @@ export const recordSpecs: Record<
     date: 'effective_at',
     fields: {
       product_code: '产品编码',
+      product_name: '产品名称',
       facility: '仓库',
       inventory_item_id: '库存项编号',
       item_status: '库存项状态',
@@ -109,4 +112,130 @@ export const recordDefaultColumns: Record<RecordKind, string[]> = {
 }
 export function recordColumns(kind: RecordKind): Record<string, string> {
   return { id: '编号', ...recordSpecs[kind].fields }
+}
+
+/** What each child table of a document's detail is called. A key not listed shows as itself. */
+export const childLabels: Readonly<Record<string, string>> = {
+  items: '明细行',
+  lines: '明细行',
+  entries: '明细',
+  fulfilment: '履约',
+  approval_records: '审批记录',
+  attachments: '附件',
+  adjustments: '价格调整',
+  quotations: '报价单',
+  orders: '订单',
+}
+
+/**
+ * Column names for child tables, where the field is one a person reads often. Only names: nothing is
+ * shown or hidden by this table, and a field it does not know is shown under its own name.
+ */
+export const fieldLabels: Readonly<Record<string, string>> = {
+  ...Object.assign({}, ...Object.values(recordSpecs).map(spec => spec.fields)),
+  // A name that several documents carry takes the word that is true of all of them: a list keeps its own
+  // closer word for its own column (a movement's 变动原因, an order's 订单总额).
+  reason: '原因',
+  line_no: '行号',
+  product_name_snapshot: '产品名称',
+  spec: '规格',
+  quantity: '数量',
+  unit: '单位',
+  list_price_snapshot: '标价',
+  unit_price: '单价',
+  amount: '金额',
+  tax_rate: '税率',
+  is_gift: '赠品',
+  shipped_quantity: '已发数量',
+  ordered: '订购数量',
+  shipped: '已发数量',
+  outstanding: '未发数量',
+  adjustment_type: '调整类型',
+  round_no: '轮次',
+  approver_role: '审批角色',
+  acted_at: '处理时间',
+  source: '来源',
+  action: '动作',
+  comment: '意见',
+  actor_name: '处理人',
+  filename: '文件名',
+  content_type: '类型',
+  size_bytes: '大小',
+  created_at: '创建时间',
+  updated_at: '更新时间',
+  // Finance, HR and the other collections a role menu shows.
+  total_amount: '总额',
+  tax_amount: '税额',
+  applied_amount: '已核销',
+  amount_applied: '核销金额',
+  invoice_no: '发票号',
+  invoice_type: '发票类型',
+  invoice_date: '开票日期',
+  due_date: '到期日',
+  direction: '方向',
+  counterparty_name_snapshot: '对方',
+  counterparty: '对方',
+  payment_no: '付款单号',
+  payment_method: '付款方式',
+  payment_date: '日期',
+  paid_at: '付款时间',
+  reference_no: '参考号',
+  applied_to_type: '核销对象',
+  applied_at: '核销时间',
+  employee_code: '工号',
+  email: '邮箱',
+  hire_date: '入职日期',
+  institution: '开户机构',
+  account_number: '账号',
+  account_type: '账户类型',
+  current_balance: '当前余额',
+  trans_type: '交易类型',
+  trans_date: '交易日期',
+  component: '薪资项',
+  effective_from: '生效日',
+  effective_thru: '失效日',
+  rate: '比率',
+  basis: '计算基准',
+  period_type: '周期',
+  period_start: '期间开始',
+  period_end: '期间结束',
+  title: '标题',
+  currency: '币种',
+  status: '状态',
+  description: '说明',
+  remarks: '备注',
+  note: '备注',
+}
+
+/** What a collection is called in a menu, where people have a word for it. Otherwise its own name. */
+export const collectionLabels: Readonly<Record<string, string>> = {
+  invoices: '发票',
+  'invoice-items': '发票明细',
+  payments: '收付款',
+  'payment-applications': '核销记录',
+  employees: '员工',
+  'fin-accounts': '资金账户',
+  'fin-account-transactions': '资金流水',
+  'pay-histories': '薪资档案',
+  'employee-leaves': '请假',
+  'purchase-requests': '采购申请',
+  'purchase-orders': '采购订单',
+  'sales-quotations': '销售报价',
+  'sales-returns': '销售退货',
+  customers: '客户',
+  vendors: '供应商',
+  products: '产品',
+  contracts: '合同',
+  'expense-claims': '费用单',
+  'timesheet-headers': '工时单',
+  'billing-accounts': '计费账户',
+  campaigns: '营销活动',
+}
+
+/** What a direction scope is called: `invoice.manage:payroll` is the payroll side of invoicing. */
+export const scopeLabels: Readonly<Record<string, string>> = {
+  sales: '销项',
+  purchase: '进项',
+  payroll: '工资条',
+  reimbursement: '报销',
 }

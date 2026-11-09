@@ -1,15 +1,12 @@
 // @vitest-environment jsdom
 
-import { BusinessSessionContext, fakePane, PaneValueContext } from '@oryh/dsh-client-frame/client'
+import { fakeFace, wordsOf } from '@oryh/ai-client-kit/testing'
 import { act, createElement as h } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
-import { TodosApiContext } from './api.js'
 import { TodoChat } from './todo-chat.js'
+import { words } from './words.js'
 
-vi.mock('@fluentui/react-components', () => ({
-  Button: ({ children, onClick }: any) => h('button', { onClick }, children),
-}))
 describe('the open todo beside Chat', () => {
   it('shows the linked document through the shared Remote, and re-reads it after a write in Chat', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -21,27 +18,13 @@ describe('the open todo beside Chat', () => {
       sections: [{ name: 'quotation', fields: [{ name: 'quote_number', value: 'QT-1' }] }],
     }
     const api = { todoDetail: vi.fn(async () => document) }
-    const pane = fakePane()
+    const pane = fakeFace()
     const node = window.document.createElement('div')
     window.document.body.append(node)
     const root = createRoot(node)
     try {
       await act(async () =>
-        root.render(
-          h(
-            TodosApiContext.Provider,
-            { value: api as never },
-            h(
-              PaneValueContext.Provider,
-              { value: pane.value },
-              h(
-                BusinessSessionContext.Provider,
-                { value: 's' },
-                h(TodoChat, { connectionId: 'c' as never, todoId: 'b' }),
-              ),
-            ),
-          ),
-        ),
+        root.render(h(TodoChat, { face: pane.face, api: api as never, todoId: 'b', t: wordsOf(words) })),
       )
       expect(node.textContent).toContain('QT-1')
       expect(node.textContent).toContain('Chat 已关联当前待办')

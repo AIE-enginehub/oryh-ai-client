@@ -1,28 +1,25 @@
-import { ExpenseService, type ExpenseStore } from '@oryh/ai-client-expenses'
-import { ProjectService, type ProjectStore } from '@oryh/ai-client-projects'
-import { RecordService } from '@oryh/ai-client-records'
-import { TimesheetService, type TimesheetStore } from '@oryh/ai-client-timesheets'
-import { TodoDetailService } from '@oryh/ai-client-todos'
+import { AttachmentUploader } from './attachments.js'
 import type { ConnectionId, OperationResultId } from './brand.js'
 import type { ConnectionStore } from './connection-store.js'
 import { ConnectionRegistry, type ConnectionSummary } from './connections.js'
-import { decodeIdentity, type OryhExpenseClaim, type OryhProject, type OryhTodo } from './contracts.js'
+import { decodeIdentity, type OryhTodo } from './contracts.js'
 import type { CredentialHandoff, HandedOffCredential } from './credential-handoff.js'
 import type { CredentialVault } from './credentials.js'
-import { type DeviceConnectionAttempt, DeviceFlowConnector } from './device-flow.js'
+import { type ConnectionAdmission, type DeviceConnectionAttempt, DeviceFlowConnector } from './device-flow.js'
 import { OryhClientError } from './errors.js'
 import type { Fetcher } from './http.js'
 import { OryhHttpClient } from './http.js'
 import { ListParameters } from './list-parameters.js'
 import { OryhMcpClient } from './mcp.js'
-import { OperationExecutor, type OperationResult } from './operations.js'
-import type { ServerBinding } from './server-read.js'
+import { OperationExecutor, type OperationId, type OperationResult, type OperationValue } from './operations.js'
+import { PageReader } from './page-reads.js'
+import type { ServerBinding } from './server-binding.js'
 import { SkillBundleService } from './skill-bundle.js'
 import { WorkflowDefinitions } from './workflow.js'
 
 /** Dependencies owned by a native shell or DSH Host integration. */
 export interface OryhClientHostOptions {
-  /** Host-only secret store; production supplies an OS-keychain adapter. */
+  /** Host-only secret store supplied by the product's credential service. */
   readonly credentialVault: CredentialVault
   /** Host network transport; production normally passes `globalThis.fetch`. */
   readonly fetcher: Fetcher
@@ -30,7 +27,7 @@ export interface OryhClientHostOptions {
   readonly clock?: () => Date
   /** Non-secret connection metadata store; production persists it outside the credential vault. */
   readonly connectionStore?: ConnectionStore
-  /** Trusted server-only binding. Use createServerReadHost or createServerOryhRuntime, never browser configuration. */
+  /** Trusted server-only binding. Bound by createServerOryhHost, never browser configuration. */
   readonly serverBinding?: ServerBinding
   /** Credentials a trusted sign-in in the same deployment leaves for this Host to adopt. */
   readonly credentialHandoff?: CredentialHandoff
@@ -40,6 +37,29 @@ export interface OryhClientHostOptions {
    * and forgets every verification when a turn starts, so one turn costs one `/auth/me`.
    */
   readonly verifyTtlMs?: number
+  /** Who may connect an enterprise here, where the deployment belongs to one person; throws to refuse. */
+  readonly connectionAdmission?: ConnectionAdmission
+}
+
+/**
+ * What a domain builds its own service on: reads of ORYH as a connection this Host holds, and the ways
+ * to ask who that connection is. No domain is known here — a plugin takes this, builds its service and
+ * provides it (ADR-0014). It can only read: `http` passes on a path and nothing else, so the transport
+ * with its writes, and the credentials behind it, stay where they are.
+ */
+export interface OryhDomainReads {
+  /** GET one path under `/api/v1` as a connection. */
+  readonly http: {
+    request(connectionId: ConnectionId, request: { readonly path: `/${string}` }): Promise<unknown>
+  }
+  /** Ask ORYH who this connection is; answered from the last asking while that is still good. */
+  verify(connectionId: string): Promise<ConnectionSummary>
+  /** A connection already verified. Throws when it is not. */
+  current(connectionId: string): ConnectionSummary
+  /** The same, once the Host is ready and a verification under way has settled. */
+  settled(connectionId: string): Promise<ConnectionSummary>
+  /** What ORYH's own schema says each list can be filtered by and what its rows carry; a lookup of its own per call. */
+  lists(): ListParameters
 }
 
 /**
@@ -53,7 +73,7 @@ export class OryhClientHost {
   readonly #operations: OperationExecutor
   readonly #credentials: CredentialVault
   readonly #connectionStore: ConnectionStore | undefined
-  readonly #ready: Promise<void>
+  #ready: Promise<void> | undefined
   private readonly serverBinding: ServerBinding | undefined
   private detachServer: () => void = () => {}
   readonly #verifications = new Map<ConnectionId, Promise<ConnectionSummary>>()
@@ -76,11 +96,15 @@ export class OryhClientHost {
       options.fetcher,
       options.serverBinding ? { delegated: options.serverBinding } : {},
     )
-    this.#devices = new DeviceFlowConnector(this.#connections, this.#credentials, options.fetcher, async () =>
-      this.persistConnections(),
+    this.#devices = new DeviceFlowConnector(
+      this.#connections,
+      this.#credentials,
+      options.fetcher,
+      async () => this.persistConnections(),
+      options.connectionAdmission,
     )
     this.#operations = new OperationExecutor(this.#connections, this.#http, options.clock)
-    this.#ready = this.restoreConnections()
+    this.ready()
     if (this.serverBinding) {
       const revoke = () => {
         for (const connection of this.#connections.list()) {
@@ -95,57 +119,31 @@ export class OryhClientHost {
     }
   }
 
-  /** Build a browser-safe expense workflow over the same verified connection and transport. */
-  /** Concrete service, not the narrow Remote interface: the Host also installs its submit gate. */
-  createExpenseRemote(store: ExpenseStore) {
-    return new ExpenseService(
-      store,
-      this.#http,
-      id => this.#connections.requireVerified(id as ConnectionId),
-      id => this.verifyConnection(id as ConnectionId),
-    )
-  }
-
-  /** Records read with server-side filters, checked against what each list endpoint declares. */
-  createRecordRemote() {
-    const declared = new ListParameters(this.#http)
-    return new RecordService(
-      this.#http,
-      id => this.verifyConnection(id as ConnectionId),
-      id => this.#connections.requireVerified(id as ConnectionId),
-      (id, path) => declared.of(id, path),
-    )
-  }
-  createProjectRemote(store: ProjectStore) {
-    return new ProjectService(
-      store,
-      this.#http,
-      id => this.#connections.requireVerified(id as ConnectionId),
-      id => this.verifyConnection(id as ConnectionId),
-    )
-  }
-  createTodoDetailRemote() {
-    return new TodoDetailService(
-      this.#http,
-      id => this.#connections.requireVerified(id as ConnectionId),
-      async id => {
-        await this.#ready
+  /** What a domain's plugin builds its own service on: reads only, as a connection held here. */
+  createDomainReads(): OryhDomainReads {
+    return {
+      http: { request: (connectionId, request) => this.#http.request(connectionId, { path: request.path }) },
+      verify: id => this.verifyConnection(id as ConnectionId),
+      current: id => this.#connections.requireVerified(id as ConnectionId),
+      settled: async id => {
+        await this.ready()
         await this.#verifications.get(id as ConnectionId)
         return this.#connections.requireVerified(id as ConnectionId)
       },
-    )
-  }
-  createTimesheetRemote(store: TimesheetStore) {
-    return new TimesheetService(
-      store,
-      this.#http,
-      id => this.#connections.requireVerified(id as ConnectionId),
-      id => this.verifyConnection(id as ConnectionId),
-    )
+      lists: () => new ListParameters(this.#http),
+    }
   }
   /** Which object types this tenant governs with a workflow definition; shared by every domain. */
   createWorkflowDefinitions() {
     return new WorkflowDefinitions(this.#http)
+  }
+  /** Reads ORYH for a custom page's data run: GET only, as the person the page belongs to. */
+  createPageReader() {
+    return new PageReader(this.#http, id => this.verifyConnection(id))
+  }
+  /** Stores a file the person chose — on a page or attached in Chat — as an ORYH attachment. */
+  createAttachmentUploader() {
+    return new AttachmentUploader(this.#http, id => this.verifyConnection(id))
   }
   /** ORYH's MCP endpoint, for the tools the agent calls; the credential stays inside the shared HTTP client. */
   createMcpClient() {
@@ -158,7 +156,7 @@ export class OryhClientHost {
     // The holder is read from the connection as already verified. Starting a verification here would
     // clear the connection's in-flight business reads, and a skill sync runs whenever the workbench opens.
     return new SkillBundleService(this.#http, root, async id => {
-      await this.#ready
+      await this.ready()
       await this.#verifications.get(id)
       const { origin, identity } = this.#connections.requireVerified(id)
       return {
@@ -174,7 +172,7 @@ export class OryhClientHost {
 
   /** Start browser-backed device authorization for one ORYH deployment. */
   async beginDeviceConnection(origin: string, clientName: string): Promise<DeviceConnectionAttempt> {
-    await this.#ready
+    await this.ready()
     if (this.serverBinding)
       throw new OryhClientError('Server connections use the authenticated browser login.', 'request-failed')
     return this.#devices.begin(origin, clientName)
@@ -182,7 +180,7 @@ export class OryhClientHost {
 
   /** List non-secret connection summaries for a local UI or Remote response. */
   async connections(): Promise<readonly ConnectionSummary[]> {
-    await this.#ready
+    await this.ready()
     await this.adoptHandoff()
     return this.#connections.list()
   }
@@ -192,7 +190,8 @@ export class OryhClientHost {
    *
    * Listing connections is what a workbench does first when it opens, which is right after the
    * gateway's sign-in redirected there. Signing in again as the same person in the same enterprise
-   * replaces that connection's credential instead of adding a duplicate.
+   * replaces that connection's credential instead of adding a duplicate. A `sole` sign-in also forgets
+   * every other connection: the container changed hands, and the last person's credential goes with them.
    */
   private adoptHandoff(): Promise<void> {
     if (this.#handoff === undefined) return Promise.resolve()
@@ -205,7 +204,7 @@ export class OryhClientHost {
     return run
   }
 
-  private async adopt({ origin, credential }: HandedOffCredential): Promise<void> {
+  private async adopt({ origin, credential, sole }: HandedOffCredential): Promise<void> {
     const temporary = this.#connections.add({ origin, identity: handoffIdentity })
     await this.#credentials.write(temporary.id, credential)
     let identity
@@ -225,6 +224,7 @@ export class OryhClientHost {
           connection.identity.tenant.id === identity.tenant.id &&
           connection.identity.user.id === identity.user.id,
       )
+    const kept = existing?.id ?? temporary.id
     if (existing === undefined) {
       this.#connections.markVerified(temporary.id, identity)
     } else {
@@ -233,6 +233,10 @@ export class OryhClientHost {
       this.#connections.remove(temporary.id)
       this.#connections.markVerified(existing.id, identity)
     }
+    if (sole) {
+      for (const other of this.#connections.list()) if (other.id !== kept) await this.forget(other.id)
+    }
+    await this.#credentials.bindConnection?.(this.#connections.require(kept))
     await this.persistConnections()
   }
 
@@ -242,7 +246,7 @@ export class OryhClientHost {
    * not change under one local connection; mutable identity facts may refresh.
    */
   async verifyConnection(connectionId: ConnectionId): Promise<ConnectionSummary> {
-    await this.#ready
+    await this.ready()
     const active = this.#verifications.get(connectionId)
     if (active !== undefined) return active
     const verifiedAt = this.#verifiedAt.get(connectionId)
@@ -287,73 +291,85 @@ export class OryhClientHost {
     return verified
   }
 
+  /**
+   * Verify a connection that a failed verification left unverified. Verification is revoked before
+   * `/auth/me` is asked again, so asking while ORYH was down left the lists refusing "not verified" after
+   * it came back, until the page reloaded; a list asks once more instead.
+   */
+  private async verifiedAgain(connectionId: ConnectionId): Promise<void> {
+    if (!this.#connections.isVerified(connectionId)) await this.verifyConnection(connectionId)
+  }
+
   /** Execute the employee-bound "my open todos" operation. */
   async executeMyOpenTodos(connectionId: ConnectionId): Promise<OperationResult<OryhTodo>> {
-    await this.#ready
+    await this.ready()
+    await this.verifiedAgain(connectionId)
     return this.#operations.execute(connectionId, 'my-open-todos')
   }
 
-  /** Execute the employee-bound "my expense claims" operation. */
-  async executeMyExpenseClaims(connectionId: ConnectionId): Promise<OperationResult<OryhExpenseClaim>> {
-    await this.#ready
-    return this.#operations.execute(connectionId, 'my-expense-claims')
-  }
-
-  /** Execute the tenant-bound project-list operation. */
-  async executeProjects(connectionId: ConnectionId): Promise<OperationResult<OryhProject>> {
-    await this.#ready
-    return this.#operations.execute(connectionId, 'list-projects')
+  /** Read one record of an operation's list by id, as a list of one (see {@link OperationExecutor.one}). */
+  async executeOne(
+    connectionId: ConnectionId,
+    operationId: OperationId,
+    id: string,
+  ): Promise<OperationResult<OperationValue>> {
+    await this.ready()
+    await this.verifiedAgain(connectionId)
+    return this.#operations.one(connectionId, operationId, id)
   }
 
   /** Reuse a prior todo result without making a new ORYH request. */
   async reuseTodoResult(connectionId: ConnectionId, resultId: OperationResultId): Promise<OperationResult<OryhTodo>> {
-    await this.#ready
+    await this.ready()
     return this.#operations.reuse(connectionId, resultId, 'my-open-todos')
-  }
-
-  /** Reuse a prior expense-claim result without making a new ORYH request. */
-  async reuseExpenseClaimResult(
-    connectionId: ConnectionId,
-    resultId: OperationResultId,
-  ): Promise<OperationResult<OryhExpenseClaim>> {
-    await this.#ready
-    return this.#operations.reuse(connectionId, resultId, 'my-expense-claims')
-  }
-
-  /** Reuse a prior project result without making a new ORYH request. */
-  async reuseProjectResult(
-    connectionId: ConnectionId,
-    resultId: OperationResultId,
-  ): Promise<OperationResult<OryhProject>> {
-    await this.#ready
-    return this.#operations.reuse(connectionId, resultId, 'list-projects')
   }
 
   /** Forget all local state and Host credentials for one disconnected enterprise. */
   async disconnect(connectionId: ConnectionId): Promise<void> {
-    await this.#ready
+    await this.ready()
     this.#connections.require(connectionId)
+    await this.forget(connectionId)
+    if (this.serverBinding) this.detachServer()
+    await this.persistConnections()
+  }
+
+  private async forget(connectionId: ConnectionId): Promise<void> {
     this.#connections.revokeVerification(connectionId)
     this.#operations.clearConnection(connectionId)
     await this.#http.close(connectionId)
     await this.#credentials.remove(connectionId)
     this.#connections.remove(connectionId)
-    if (this.serverBinding) this.detachServer()
-    await this.persistConnections()
   }
 
   /** Confirm that a connection belongs to the restored and active Host registry. */
   async connection(connectionId: ConnectionId): Promise<ConnectionSummary> {
-    await this.#ready
+    await this.ready()
     return this.#connections.require(connectionId)
+  }
+
+  /** Share one initialization attempt; a failed attempt must not poison later user retries. */
+  private ready(): Promise<void> {
+    if (this.#ready) return this.#ready
+    const attempt = this.restoreConnections()
+    this.#ready = attempt
+    // Initialization starts eagerly, before a caller may be waiting. Observe the rejection without
+    // hiding it from that caller, then let the next request retry. Success remains cached.
+    void attempt.catch(() => {
+      if (this.#ready === attempt) this.#ready = undefined
+    })
+    return attempt
   }
 
   private async restoreConnections(): Promise<void> {
     if (this.serverBinding) {
-      const connection = this.#connections.add({
-        origin: this.serverBinding.origin,
-        identity: this.serverBinding.identity,
-      })
+      // A failed verification leaves the bound connection unverified. Retry that same connection:
+      // callers may already know its ID, and a retry must not accumulate duplicate connections.
+      const connection =
+        this.#connections.list()[0] ??
+        this.#connections.add({
+          origin: this.serverBinding.origin,
+          identity: this.serverBinding.identity,
+        })
       await this.verifyIdentity(connection.id)
       return
     }
@@ -361,7 +377,16 @@ export class OryhClientHost {
     const stored = await this.#connectionStore.load()
     const restorable: ConnectionSummary[] = []
     for (const connection of stored) {
-      if ((await this.#credentials.read(connection.id)) !== undefined) restorable.push(connection)
+      try {
+        await this.#credentials.bindConnection?.(connection)
+        if ((await this.#credentials.read(connection.id)) !== undefined) restorable.push(connection)
+      } catch (error) {
+        // A refused legacy-keychain migration must not erase saved identities or
+        // prevent starting a new sign-in. Verification still refuses every
+        // business operation until a credential can actually be read and checked.
+        if (!(error instanceof OryhClientError) || error.code !== 'credential-store-failed') throw error
+        restorable.push(connection)
+      }
     }
     this.#connections.restore(restorable)
     if (restorable.length !== stored.length) await this.persistConnections()

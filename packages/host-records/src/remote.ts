@@ -1,15 +1,24 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {
+  BusinessRecord,
+  CollectionQuery,
+  CollectionRecordQuery,
   OryhRecordRemote,
   ProductOptions,
   ProductSearch,
+  RecordDetail,
   RecordFilterField,
   RecordPage,
   RecordQuery,
 } from '@oryh/ai-client-records'
 import { RemoteCalls } from '@oryh/dsh-connection'
-import type { RecordFilterFieldsRequest } from './types.js'
+import type {
+  CollectionFilterFieldsRequest,
+  RecordDetailRequest,
+  RecordFilterFieldsRequest,
+  RecordGetRequest,
+} from './types.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -32,7 +41,24 @@ export class RecordsRemote extends TypertRemoteService {
   @Remote('recordList') recordList(r: RecordQuery): Promise<RecordPage> {
     return this.calls.call(() => this.ctx.oryhRecords.recordList(r))
   }
+  @Remote('recordGet') recordGet(r: RecordGetRequest): Promise<BusinessRecord> {
+    return this.calls.call(() => this.ctx.oryhRecords.recordGet(r.connectionId, r.kind, r.id))
+  }
   @Remote('recordFilterFields') recordFilterFields(r: RecordFilterFieldsRequest): Promise<RecordFilterField[]> {
     return this.calls.call(() => this.ctx.oryhRecords.recordFilterFields(r.connectionId, r.kind))
+  }
+  @Remote('recordDetail') recordDetail(r: RecordDetailRequest): Promise<RecordDetail> {
+    return this.calls.call(() => this.ctx.oryhRecords.recordDetail(r.connectionId, r.collection, r.id))
+  }
+  @Remote('collectionList') collectionList(r: CollectionQuery): Promise<RecordPage> {
+    return this.calls.call(() => this.ctx.oryhRecords.collectionList(r))
+  }
+  @Remote('collectionGet') collectionGet(r: CollectionRecordQuery): Promise<BusinessRecord> {
+    return this.calls.call(() => this.ctx.oryhRecords.collectionGet(r))
+  }
+  @Remote('collectionFilterFields') collectionFilterFields(
+    r: CollectionFilterFieldsRequest,
+  ): Promise<RecordFilterField[]> {
+    return this.calls.call(() => this.ctx.oryhRecords.collectionFilterFields(r.connectionId, r.collection))
   }
 }

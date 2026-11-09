@@ -59,3 +59,33 @@ export function pageOperation(
 ): OryhOperation {
   return { kind: 'page', operationId, digest: sha256(operationDigestInput(request)), confirmedAt: Date.now() }
 }
+
+/**
+ * ORYH's idempotency key for a write is the operation's own id, so the same confirmation sent twice
+ * — a retry, a reconnect, a person pressing the button again — writes once. It travels as a request
+ * header on a REST call and as a tool argument on a chat write; an ORYH without idempotency ignores
+ * both. Every client this repository builds sends it: the desktop Host, the sandbox Host, and the
+ * control process on their behalf.
+ */
+export const IDEMPOTENCY_HEADER = 'idempotency-key'
+
+/** The name ORYH's MCP tools take the same key under. */
+export const IDEMPOTENCY_ARGUMENT = 'idempotency_key'
+
+/**
+ * The header a write carries, and nothing for a read.
+ * @param operation - the write this request is, when it is one.
+ */
+export function idempotencyHeaders(operation?: OryhOperation): Record<string, string> {
+  return operation ? { [IDEMPOTENCY_HEADER]: operation.operationId } : {}
+}
+
+/**
+ * A chat write's tool arguments with the key on them, replacing anything of that name that was there:
+ * the key is the trusted caller's to set, never the model's.
+ * @param args - the arguments as they would otherwise be sent.
+ * @param operationId - the write's operation id.
+ */
+export function idempotentArguments(args: Record<string, unknown>, operationId: string): Record<string, unknown> {
+  return { ...args, [IDEMPOTENCY_ARGUMENT]: operationId }
+}

@@ -1,0 +1,37 @@
+/* ── Controls (controls.tsx) ──────────────────────────────────────────────────────────────────────
+   Unscoped on purpose: a dialog and a popover are drawn at the end of the document, outside the
+   business root. Colours come from Harness's tokens, so these follow its theme by themselves. */
+.oryh-button { flex: none; white-space: nowrap; }
+.oryh-link-button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); font-size: 14px; text-decoration: none; white-space: nowrap; }
+.oryh-link-button:hover { background: var(--dsw-alias-bg-hover); }
+.oryh-link-button[data-variant="primary"] { border-color: transparent; background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-on-brand, #fff); }
+.oryh-link-button[data-variant="primary"]:hover { background: var(--dsw-alias-state-business-primary); filter: brightness(1.06); }
+.oryh-link-button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
+.oryh-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.oryh-field-label { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+.oryh-field-hint { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+.oryh-field > .oryh-input, .oryh-field > .oryh-select { width: 100%; box-sizing: border-box; }
+.oryh-input { min-width: 0; }
+.oryh-input > input { width: 100%; }
+.oryh-select { height: 32px; min-width: 0; padding: 0 28px 0 8px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); background-color: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; line-height: 22px; }
+.oryh-select:focus-visible { outline: none; border-color: var(--dsw-alias-state-business-primary); }
+.oryh-select:disabled { opacity: .55; }
+.oryh-notice { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-inline-start: 3px solid var(--dsw-alias-label-tertiary); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 20px; min-width: 0; }
+.oryh-notice[data-intent="error"] { border-inline-start-color: var(--dsw-alias-state-error-primary); }
+.oryh-notice[data-intent="success"] { border-inline-start-color: var(--dsw-alias-state-success-primary); }
+.oryh-notice[data-intent="warning"] { border-inline-start-color: var(--dsw-alias-state-warning-primary, #b97700); }
+.oryh-notice[data-intent="info"] { border-inline-start-color: var(--dsw-alias-state-business-primary); }
+.oryh-notice-body { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.oryh-notice-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.oryh-spinner { display: inline-flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.oryh-spinner-ring { width: 18px; height: 18px; box-sizing: border-box; border: 2px solid var(--dsw-alias-border-l3); border-top-color: var(--dsw-alias-state-business-primary); border-radius: 50%; animation: oryh-spin .8s linear infinite; }
+.oryh-spinner[data-size="sm"] .oryh-spinner-ring { width: 14px; height: 14px; }
+@keyframes oryh-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .oryh-spinner-ring { animation-duration: 2.4s; } }
+/* Twice the class: Harness's own rule for the card's width is one class, and loads after this sheet. */
+.oryh-dialog.oryh-dialog { width: min(480px, calc(100vw - 32px)); }
+.oryh-dialog.oryh-dialog-wide { width: min(720px, calc(100vw - 32px)); }
+.oryh-dialog p { margin: 0 0 8px; line-height: 1.6; }
+.oryh-caption { display: block; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+.oryh-popover-anchor { display: inline-flex; }
+.oryh-popover { position: fixed; z-index: 1000; box-sizing: border-box; max-width: calc(100vw - 16px); padding: 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 8px 28px rgb(0 0 0 / 18%); }

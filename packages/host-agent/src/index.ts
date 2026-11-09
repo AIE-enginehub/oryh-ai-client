@@ -5,15 +5,19 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@oryh/dsh-connection'
 import type {} from '@oryh/dsh-pane'
 import { BusinessAgent } from './business-agent.js'
 
+export { type ChatFiles, UPLOAD_TOOL, uploadTool } from './attachments.js'
 export { BusinessAgent, type BusinessAgentOptions } from './business-agent.js'
 export { OryhMcpTools } from './mcp-tools.js'
-export { instructions, RULES } from './prompts.js'
+export { jsonPromptText, plainPromptText } from './prompt-text.js'
+export { instructions, RULES, UPLOAD_RULE } from './prompts.js'
+export { insideSkill, SKILL_FILE_TOOL, skillFileTool } from './skill-file.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -32,6 +36,7 @@ export const inject = [
   'oryhSkills',
   'oryhMcp',
   'oryhData',
+  'attachments',
 ]
 
 export function apply(ctx: Context): void {
@@ -42,6 +47,7 @@ export function apply(ctx: Context): void {
     skills: ctx.oryhSkills,
     mcp: ctx.oryhMcp,
     capabilities: ctx.oryhData.capabilities,
+    attachments: { files: ctx.attachments, uploader: ctx.oryhHost.createAttachmentUploader() },
   })
   ctx.provide('oryhChat', agent)
   agent.install()

@@ -1,7 +1,16 @@
 import { createHash } from 'node:crypto'
 import { operationDigestInput } from '@oryh/ai-client-foundation'
 
-export { canonicalJson, type OryhOperation, operationDigestInput, pageOperation } from '@oryh/ai-client-foundation'
+export {
+  canonicalJson,
+  IDEMPOTENCY_ARGUMENT,
+  IDEMPOTENCY_HEADER,
+  idempotencyHeaders,
+  idempotentArguments,
+  type OryhOperation,
+  operationDigestInput,
+  pageOperation,
+} from '@oryh/ai-client-foundation'
 
 /**
  * The digest a page records when the person confirms, and the control process recomputes before it
